@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --silk: #faf6f0;
+  --bamboo: #ede4d3;
+  --ink-900: #1a1a1a;
+  --ink-700: #3d3d3d;
+  --ink-500: #6b6b6b;
+  --ink-300: #a8a8a8;
+  --cinnabar: #c43a31;
+  --gold: #b8860b;
+  --jade: #5b8c5a;
+}
+
+.dark {
+  --silk: #1a1410;
+  --bamboo: #3a3020;
+  --ink-900: #e8e0d5;
+  --ink-700: #c4b99a;
+  --ink-500: #8a8268;
+  --ink-300: #5a5545;
+}
+
+body {
+  background: var(--silk);
+  color: var(--ink-700);
+  font-family: 'Noto Sans SC', system-ui, sans-serif;
+}
+
+.font-serif {
+  font-family: 'Noto Serif SC', 'STSong', serif;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--ink-300);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-500);
+}
+
+/* MapLibre overrides */
+.maplibregl-ctrl-attrib {
+  display: none;
+}
