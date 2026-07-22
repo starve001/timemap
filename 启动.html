@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>中国时序地图 · 启动器</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: linear-gradient(135deg, #faf6f0, #ede4d3);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.card {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+  padding: 48px 56px;
+  text-align: center;
+  max-width: 460px;
+}
+.logo {
+  font-family: "Noto Serif SC", "STSong", serif;
+  font-size: 28px;
+  font-weight: 700;
+  color: #c43a31;
+  margin-bottom: 8px;
+  letter-spacing: 0.06em;
+}
+.subtitle {
+  font-size: 14px;
+  color: #6b6b6b;
+  margin-bottom: 28px;
+}
+#status {
+  font-size: 16px;
+  margin-bottom: 24px;
+  padding: 14px 20px;
+  border-radius: 10px;
+  transition: all 0.3s;
+}
+#status.connecting {
+  background: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffe69c;
+}
+#status.success {
+  background: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+#status.failed {
+  background: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+.spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid #856404;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  vertical-align: middle;
+  margin-right: 8px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.btn {
+  display: inline-block;
+  padding: 12px 36px;
+  background: #c43a31;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+.btn:hover { background: #a52a22; transform: translateY(-1px); }
+.hint {
+  margin-top: 20px;
+  font-size: 13px;
+  color: #a8a8a8;
+  line-height: 1.6;
+}
+.hint code {
+  background: #f5f0e8;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #c43a31;
+}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">中国时序地图</div>
+  <div class="subtitle">ChronoMap CN</div>
+  <div id="status" class="connecting">
+    <span class="spinner"></span>正在检测服务器...
+  </div>
+  <a id="enterBtn" class="btn" href="http://localhost:8080" style="display:none;">进入地图 →</a>
+  <div class="hint" id="hint" style="display:none;">
+    服务器未启动，请先双击 <code>start.bat</code> 启动静态服务器
+  </div>
+</div>
+<script>
+const statusEl = document.getElementById('status');
+const btnEl = document.getElementById('enterBtn');
+const hintEl = document.getElementById('hint');
+const url = 'http://localhost:8080';
+
+function check() {
+  fetch(url, { mode: 'no-cors', cache: 'no-cache' })
+    .then(() => {
+      statusEl.className = 'success';
+      statusEl.innerHTML = '✅ 服务器已就绪！';
+      btnEl.style.display = 'inline-block';
+    })
+    .catch(() => {
+      statusEl.className = 'failed';
+      statusEl.innerHTML = '❌ 服务器未启动';
+      hintEl.style.display = 'block';
+    });
+}
+
+// 先等2秒再检测，给服务器启动时间
+setTimeout(check, 500);
+
+// 每3秒重试一次
+setInterval(check, 3000);
+</script>
+</body>
+</html>

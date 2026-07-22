@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# misc
+.DS_Store
+*.pem
+debug.log
+
+# IDE
+.idea/
+.vscode/
+*.suo
+*.ntfs*
+*.nfs*
+
+# workbuddy
+.workbuddy/
