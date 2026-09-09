@@ -1,0 +1,2852 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>MAPDEX · 时序地图 — 时间驱动的世界历史</title>
+<meta name="description" content="MAPDEX 时序地图：以时间为轴浏览世界历史事件，公元前221年（秦统一）~ 公元1918年（一战结束），地图与时间轴双向联动。" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗺️</text></svg>" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@6/dist/maplibre-gl.css" />
+<style>
+/* =========================
+   全局 & 基础样式（深色学术主题）
+   ========================= */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 100%; height: 100%;
+  background: #0f1624;
+  color: #e6e8ef;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+               "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+/* 地图铺满视口作底层 */
+#map { position: fixed; inset: 0; width: 100%; height: 100%; background: #0b1120; }
+#map canvas { outline: none; }
+
+/* 上下渐隐遮罩：让浮层与地图衔接自然 */
+.vignette {
+  position: fixed; inset: 0; z-index: 1; pointer-events: none;
+  background: linear-gradient(180deg,
+    rgba(11,17,32,.62) 0%, rgba(11,17,32,.18) 14%,
+    rgba(11,17,32,0) 30%,
+    rgba(11,17,32,0) 62%, rgba(11,17,32,.38) 86%, rgba(11,17,32,.7) 100%);
+}
+
+/* 浮层容器：面板才接收指针，其余穿透给地图 */
+.app {
+  position: fixed; inset: 0; z-index: 2;
+  display: flex; flex-direction: column;
+  padding: 14px 16px;
+  pointer-events: none;
+}
+.topbar, .tl-panel { pointer-events: auto; }
+
+/* ========================= 顶部栏 ========================= */
+.topbar {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 16px;
+  align-items: center;
+  padding: 10px 14px;
+  background: rgba(13,19,34,.72);
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 14px;
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  box-shadow: 0 8px 30px rgba(0,0,0,.35);
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand .logo {
+  width: 30px; height: 30px; border-radius: 8px;
+  background: linear-gradient(135deg, #c9a24b 0%, #8a6a2a 100%);
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #1a1a1a; font-weight: 800; font-size: 14px;
+  box-shadow: 0 0 0 1px rgba(201,162,75,.35), 0 2px 10px rgba(201,162,75,.25);
+}
+.brand h1 {
+  font-size: 15px; font-weight: 700; letter-spacing: .5px;
+  color: #e6e8ef; white-space: nowrap;
+}
+.brand .sub {
+  font-size: 11px; color: #8a93a8; margin-left: 6px; letter-spacing: 1px;
+}
+
+/* 搜索 */
+.search-wrap { position: relative; max-width: 520px; justify-self: stretch; width: 100%; }
+.search-wrap svg {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  color: #7a8398;
+}
+#searchInput {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px 0 36px;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.09);
+  border-radius: 10px;
+  color: #e6e8ef;
+  font-size: 13px;
+  outline: none;
+  transition: border-color .2s, background .2s, box-shadow .2s;
+}
+#searchInput::placeholder { color: #6c7489; }
+#searchInput:focus {
+  border-color: rgba(201,162,75,.6);
+  background: rgba(255,255,255,.07);
+  box-shadow: 0 0 0 3px rgba(201,162,75,.12);
+}
+.search-suggest {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+  max-height: 260px; overflow: auto;
+  background: rgba(22,29,46,.96);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 10px;
+  backdrop-filter: blur(10px);
+  z-index: 50;
+  display: none;
+}
+.search-suggest.active { display: block; }
+.sg-item {
+  padding: 8px 12px; font-size: 13px; cursor: pointer;
+  display: flex; justify-content: space-between; align-items: center;
+  border-bottom: 1px solid rgba(255,255,255,.04);
+}
+.sg-item:last-child { border-bottom: none; }
+.sg-item:hover, .sg-item.active { background: rgba(201,162,75,.10); color: #f2d99a; }
+.sg-item .sg-year { font-family: "SF Mono", Consolas, monospace; color: #8a93a8; font-size: 12px; }
+
+/* 分类筛选按钮 */
+.categories { display: flex; gap: 6px; flex-wrap: wrap; }
+.cat-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.08);
+  color: #b4bccd;
+  cursor: pointer;
+  transition: all .2s ease;
+}
+.cat-btn .dot { width: 8px; height: 8px; border-radius: 50%; }
+.cat-btn:hover { background: rgba(255,255,255,.08); color: #e6e8ef; }
+.cat-btn.active {
+  background: var(--cat-bg, rgba(201,162,75,.15));
+  border-color: var(--cat-bd, rgba(201,162,75,.6));
+  color: var(--cat-tx, #f2d99a);
+  box-shadow: 0 0 0 1px var(--cat-bd, rgba(201,162,75,.3)) inset;
+}
+
+/* 播放控制 */
+.play-ctrl { display: flex; gap: 6px; align-items: center; }
+.play-btn {
+  height: 34px; min-width: 34px;
+  padding: 0 10px;
+  border-radius: 10px;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.09);
+  color: #d8dbe6;
+  font-size: 14px; line-height: 1;
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: all .2s;
+  font-family: "SF Mono", Consolas, monospace;
+}
+.play-btn:hover { background: rgba(201,162,75,.16); border-color: rgba(201,162,75,.4); color: #f2d99a; }
+.play-btn.main { width: 40px; font-size: 15px; }
+.play-btn.playing {
+  background: linear-gradient(135deg, rgba(201,162,75,.85), rgba(138,106,42,.85));
+  border-color: rgba(242,217,154,.7);
+  color: #14192b;
+  box-shadow: 0 0 14px rgba(201,162,75,.45);
+}
+.play-btn.speed { font-size: 12px; }
+
+/* ========================= 底部时间轴面板 ========================= */
+.tl-panel {
+  margin-top: auto;
+  height: 240px;
+  flex: none;
+  background: rgba(13,19,34,.78);
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 16px;
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: 0 12px 40px rgba(0,0,0,.45);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.tl-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 14px 0;
+  font-size: 10px; color: #7a8398;
+  letter-spacing: 1px;
+}
+.tl-head .tl-title { text-transform: uppercase; }
+.tl-head .tl-attr { font-size: 10px; color: #667080; letter-spacing: .3px; }
+.tl-attr a { color: #8a93a8; text-decoration: none; }
+.tl-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 150px;
+  gap: 12px;
+  padding: 8px 12px 12px;
+  min-height: 0;
+}.timeline-wrap {
+  position: relative;
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 14px;
+  overflow: hidden;
+}
+#timeline {
+  width: 100%; height: 100%;
+  display: block;
+  cursor: grab;
+  touch-action: none;
+}
+#timeline:active { cursor: grabbing; }
+
+/* 当前中心年份浮标 */
+.center-year {
+  position: absolute;
+  top: 8px; left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  background: rgba(201,162,75,.14);
+  border: 1px solid rgba(201,162,75,.35);
+  color: #f2d99a;
+  font-family: "SF Mono", Consolas, monospace;
+  font-size: 12px;
+  border-radius: 999px;
+  pointer-events: none;
+  letter-spacing: .5px;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 2px 12px rgba(0,0,0,.25);
+  z-index: 3;
+}
+
+/* 悬浮提示（hover事件点） */
+.tip {
+  position: absolute;
+  pointer-events: none;
+  padding: 6px 10px;
+  background: rgba(16,22,38,.94);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #e6e8ef;
+  white-space: nowrap;
+  transform: translate(-50%, calc(-100% - 14px));
+  box-shadow: 0 6px 20px rgba(0,0,0,.35);
+  opacity: 0;
+  transition: opacity .15s ease;
+  z-index: 10;
+}
+.tip.show { opacity: 1; }
+.tip .t-year {
+  font-family: "SF Mono", Consolas, monospace;
+  color: #f2d99a; font-weight: 600; letter-spacing: .5px;
+}
+.tip .t-name { color: #d8dbe6; }
+
+/* 地图上的事件提示 */
+.map-tip {
+  position: fixed;
+  pointer-events: none;
+  padding: 7px 11px;
+  background: rgba(16,22,38,.95);
+  border: 1px solid rgba(201,162,75,.35);
+  border-radius: 9px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #e6e8ef;
+  white-space: nowrap;
+  transform: translate(-50%, calc(-100% - 16px));
+  box-shadow: 0 6px 20px rgba(0,0,0,.45);
+  opacity: 0;
+  transition: opacity .12s ease;
+  z-index: 40;
+}
+.map-tip.show { opacity: 1; }
+.map-tip .mt-year {
+  font-family: "SF Mono", Consolas, monospace;
+  color: #f2d99a; font-weight: 600; font-size: 11px; letter-spacing: .5px;
+}
+.map-tip .mt-name { color: #f1f3f8; }
+.map-tip .mt-place { color: #8a93a8; font-size: 11px; }
+
+/* ========================= 右侧事件栏 ========================= */
+.event-panel {
+  position: fixed;
+  top: 74px;
+  right: 14px;
+  bottom: 264px;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  background: rgba(13,19,34,.82);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 14px;
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: 0 12px 40px rgba(0,0,0,.45);
+  overflow: hidden;
+  z-index: 30;
+  pointer-events: auto;
+}
+.ep-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 14px 6px;
+}
+.ep-title {
+  font-size: 12px; font-weight: 700; letter-spacing: 1px;
+  color: #e6e8ef; text-transform: uppercase;
+}
+.ep-slice {
+  font-family: "SF Mono", Consolas, monospace;
+  font-size: 10px; color: #c9a24b; letter-spacing: .3px;
+  max-width: 190px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ep-sub {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0 14px 8px;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+}
+.ep-sub #epRange { font-size: 11px; color: #8a93a8; font-family: "SF Mono", Consolas, monospace; }
+.ep-focus {
+  font-size: 11px; padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.1);
+  color: #b4bccd; cursor: pointer;
+  transition: all .2s;
+}
+.ep-focus:hover { background: rgba(201,162,75,.14); border-color: rgba(201,162,75,.4); color: #f2d99a; }
+.ep-focus.on {
+  background: rgba(201,162,75,.18);
+  border-color: rgba(201,162,75,.55);
+  color: #f2d99a;
+}
+.ep-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px;
+  min-height: 0;
+}
+.ep-list::-webkit-scrollbar { width: 6px; }
+.ep-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 3px; }
+.ep-item {
+  display: flex; gap: 9px;
+  padding: 7px 9px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background .15s;
+  border-left: 3px solid transparent;
+}
+.ep-item:hover { background: rgba(255,255,255,.05); }
+.ep-item.sel {
+  background: rgba(201,162,75,.12);
+  border-left-color: var(--ep-c, #c9a24b);
+}
+.ep-year {
+  flex: none;
+  font-family: "SF Mono", Consolas, monospace;
+  font-size: 11px; color: #8a93a8;
+  padding-top: 2px; min-width: 62px;
+}
+.ep-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; }
+.ep-main { flex: 1; min-width: 0; }
+.ep-name {
+  font-size: 12.5px; color: #e6e8ef; line-height: 1.35;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ep-item.sel .ep-name { color: #f2d99a; }
+.ep-desc {
+  font-size: 11px; color: #7a8398; line-height: 1.4; margin-top: 1px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.ep-empty {
+  display: none;
+  padding: 18px 14px;
+  text-align: center;
+  font-size: 12px; color: #667080;
+}
+.ep-empty.show { display: block; }
+
+/* 中心指针 */
+.center-pointer {
+  position: absolute;
+  top: 0; bottom: 0; left: 50%;
+  width: 1px;
+  background: linear-gradient(180deg,
+    rgba(201,162,75,0) 0%, rgba(201,162,75,.35) 20%,
+    rgba(201,162,75,.75) 50%, rgba(201,162,75,.35) 80%,
+    rgba(201,162,75,0) 100%);
+  transform: translateX(-50%);
+  pointer-events: none;
+  z-index: 2;
+}
+.center-pointer::before {
+  content: "";
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 10px; height: 10px; border-radius: 50%;
+  background: #c9a24b;
+  box-shadow: 0 0 0 3px rgba(201,162,75,.25), 0 0 16px rgba(201,162,75,.6);
+}
+
+/* 时间轴缩放按钮 */
+.zoom-ctrl {
+  position: absolute;
+  right: 10px; bottom: 10px;
+  display: flex; flex-direction: column; gap: 6px;
+  z-index: 5;
+}
+.zoom-btn {
+  width: 32px; height: 32px;
+  border-radius: 10px;
+  background: rgba(22,29,46,.85);
+  border: 1px solid rgba(255,255,255,.08);
+  color: #d8dbe6;
+  font-size: 17px; line-height: 1;
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(8px);
+  transition: all .2s;
+}
+.zoom-btn:hover { background: rgba(201,162,75,.18); border-color: rgba(201,162,75,.4); color: #f2d99a; }
+
+/* 迷你导航条 */
+.minimap-wrap {
+  display: flex; flex-direction: column;
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 14px;
+  padding: 10px 8px;
+  gap: 6px;
+  min-height: 0;
+}
+.minimap-title {
+  font-size: 10px; color: #8a93a8;
+  letter-spacing: 1px; text-transform: uppercase;
+  text-align: center;
+}
+#minimap {
+  flex: 1; width: 100%;
+  background: rgba(255,255,255,.02);
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.05);
+  cursor: pointer;
+  touch-action: none;
+}
+.minimap-legend {
+  font-size: 10px; color: #7a8398;
+  display: flex; justify-content: space-between;
+  font-family: "SF Mono", Consolas, monospace;
+  padding: 0 4px;
+}
+.minimap-label { font-size: 10px; color: #8a93a8; text-align: center; line-height: 1.4; padding: 0 4px; }
+
+/* ========================= 地图控制按钮（右侧居中） ========================= */
+.map-ctrl {
+  position: fixed;
+  right: 16px; top: 50%;
+  transform: translateY(-50%);
+  display: flex; flex-direction: column; gap: 6px;
+  z-index: 3;
+}
+.map-ctrl .zoom-btn { width: 36px; height: 36px; background: rgba(13,19,34,.8); backdrop-filter: blur(10px); }
+
+/* 地图加载失败提示 */
+.map-error {
+  position: fixed;
+  top: 74px; left: 50%; transform: translateX(-50%);
+  z-index: 60;
+  padding: 8px 16px;
+  background: rgba(120,50,50,.85);
+  border: 1px solid rgba(255,150,150,.35);
+  border-radius: 10px;
+  font-size: 12px; color: #ffe1e1;
+  display: none;
+  backdrop-filter: blur(8px);
+}
+.map-error.show { display: block; }
+
+/* 涟漪动画（点击事件点） */
+@keyframes ripple {
+  0% { transform: translate(-50%, -50%) scale(0.5); opacity: .6; }
+  100% { transform: translate(-50%, -50%) scale(3.5); opacity: 0; }
+}
+.ripple {
+  position: absolute;
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  border: 2px solid #c9a24b;
+  pointer-events: none;
+  animation: ripple .7s ease-out forwards;
+  z-index: 4;
+}
+
+/* 滚动条美化 */
+.search-suggest::-webkit-scrollbar { width: 6px; }
+.search-suggest::-webkit-scrollbar-track { background: transparent; }
+.search-suggest::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 3px; }
+
+/* ========================= 详情卡片（毛玻璃） ========================= */
+.modal-mask {
+  position: fixed; inset: 0;
+  background: rgba(6,10,20,.55);
+  backdrop-filter: blur(4px);
+  z-index: 998;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .25s ease;
+}
+.modal-mask.show { opacity: 1; pointer-events: auto; }
+.modal {
+  position: fixed;
+  z-index: 999;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -48%) scale(.96);
+  width: min(480px, 92vw);
+  max-height: min(78vh, 640px);
+  overflow: auto;
+  background: rgba(26,34,54,.78);
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 16px;
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  box-shadow: 0 20px 60px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .25s ease, transform .25s cubic-bezier(.2,.8,.2,1);
+}
+.modal.show { opacity: 1; pointer-events: auto; transform: translate(-50%, -50%) scale(1); }
+.modal .m-head {
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
+  position: sticky; top: 0;
+  background: rgba(26,34,54,.9);
+  backdrop-filter: blur(8px);
+  z-index: 1;
+}
+.modal .m-title { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.modal .m-year {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: "SF Mono", Consolas, monospace;
+  color: #f2d99a;
+  font-size: 13px; font-weight: 600; letter-spacing: .5px;
+}
+.modal .m-year .badge {
+  padding: 2px 8px; border-radius: 999px;
+  font-size: 10px; font-family: inherit;
+  background: var(--cat-bg, rgba(201,162,75,.15));
+  color: var(--cat-tx, #f2d99a);
+  border: 1px solid var(--cat-bd, rgba(201,162,75,.3));
+  letter-spacing: .5px;
+}
+.modal .m-name { font-size: 18px; font-weight: 700; color: #f1f3f8; line-height: 1.35; }
+.modal .close-btn {
+  width: 28px; height: 28px; flex-shrink: 0;
+  border-radius: 50%;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.08);
+  color: #b4bccd;
+  font-size: 16px; line-height: 1;
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: all .2s;
+}
+.modal .close-btn:hover { background: rgba(255,255,255,.1); color: #fff; }
+.modal .m-body { padding: 16px 20px; color: #c8cce0; font-size: 13px; line-height: 1.7; }
+.modal .m-place {
+  display: flex; align-items: center; gap: 8px;
+  margin: 0 20px 14px;
+  padding: 8px 12px;
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 10px;
+  font-size: 12px; color: #b4bccd;
+}
+.modal .m-place .place-name { color: #f2d99a; }
+.modal .m-place .place-geo { font-family: "SF Mono", Consolas, monospace; color: #7a8398; font-size: 11px; }
+.modal .m-place .locate-btn {
+  margin-left: auto;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(201,162,75,.12);
+  border: 1px solid rgba(201,162,75,.4);
+  color: #f2d99a;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all .2s;
+  white-space: nowrap;
+}
+.modal .m-place .locate-btn:hover { background: rgba(201,162,75,.25); }
+.modal .m-foot {
+  padding: 12px 20px 18px;
+  border-top: 1px solid rgba(255,255,255,.06);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.modal .m-section-title {
+  font-size: 11px; color: #7a8398;
+  text-transform: uppercase; letter-spacing: 1.5px;
+  margin-bottom: 4px;
+}
+.related-people { display: flex; gap: 6px; flex-wrap: wrap; }
+.people-chip {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.07);
+  font-size: 12px; color: #b4bccd;
+}
+.related-list {
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 110px; overflow: auto;
+}
+.related-item {
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #b4bccd;
+  display: flex; justify-content: space-between; gap: 10px;
+  cursor: pointer;
+  transition: all .15s;
+  border: 1px solid transparent;
+}
+.related-item:hover { background: rgba(201,162,75,.08); border-color: rgba(201,162,75,.25); color: #f2d99a; }
+.related-item .r-year {
+  font-family: "SF Mono", Consolas, monospace;
+  color: #8a93a8; font-size: 11px; flex-shrink: 0;
+}
+.related-list::-webkit-scrollbar { width: 6px; }
+.related-list::-webkit-scrollbar-track { background: transparent; }
+.related-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 3px; }
+
+/* MapLibre 覆写：让控件融入主题 */
+.maplibregl-ctrl-attrib { display: none; } /* 使用自定义署名（tl-head 右侧） */
+
+/* 时间轴面板头部的小型图层开关 */
+.layer-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px;
+  font-size: 11px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.09);
+  color: #b4bccd;
+  cursor: pointer;
+  transition: all .2s ease;
+  margin-right: 10px;
+}
+.layer-btn:hover { background: rgba(255,255,255,.08); color: #e6e8ef; }
+.layer-btn.on {
+  background: rgba(95,163,181,.15);
+  border-color: rgba(95,163,181,.55);
+  color: #bfe0ea;
+  box-shadow: 0 0 0 1px rgba(95,163,181,.3) inset;
+}
+.layer-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ========================= 移动端 ========================= */
+@media (max-width: 900px) {
+  .tl-body { grid-template-columns: 1fr; }
+  .minimap-wrap { display: none; }
+  .tl-panel { height: min(196px, 32vh); }
+  .brand .sub { display: none; }
+  .topbar { grid-template-columns: 1fr auto; grid-template-rows: auto auto; }
+  .search-wrap { grid-column: 1 / 2; }
+  .play-ctrl { grid-row: 1; }
+  .categories { grid-column: 1 / -1; justify-content: flex-start; overflow-x: auto; flex-wrap: nowrap; padding-bottom: 2px; }
+  .map-ctrl { top: auto; bottom: 38vh; transform: none; }
+  .brand h1 { font-size: 13px; }
+  .event-panel { display: none; }
+}
+</style>
+<script>
+/* 渲染驱动垫片：不依赖原生 requestAnimationFrame（部分嵌入环境/被遮挡窗口会永久暂停 rAF 导致地图黑屏）。
+   前台约 60fps；后台自动降频兜底，保证版图/城市/事件数据切换始终能上屏。 */
+(function () {
+  var cbs = new Set();
+  window.__rAF = cbs;
+  window.requestAnimationFrame = function (cb) { cbs.add(cb); return cb; };
+  window.cancelAnimationFrame = function (id) { cbs.delete(id); };
+  function pump(t) {
+    var list = Array.from(cbs); cbs.clear();
+    for (var i = 0; i < list.length; i++) { try { list[i](t); } catch (e) {} }
+  }
+  var hiddenCount = 0;
+  function loop() {
+    pump(performance.now());
+    var delay = document.hidden ? 250 : 16;
+    if (document.hidden) { hiddenCount++; if (hiddenCount % 8 === 0) delay = 100; }
+    else hiddenCount = 0;
+    setTimeout(loop, delay);
+  }
+  setTimeout(loop, 16);
+})();
+</script>
+</head>
+<body>
+<div id="map"></div>
+<div class="vignette"></div>
+
+<div class="app">
+  <!-- 顶部栏 -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">M</span>
+      <div>
+        <h1>MAPDEX · 时序地图
+          <span class="sub">TEMPORAL MAP · BCE 221 — CE 1918</span>
+        </h1>
+      </div>
+    </div>
+
+    <div class="search-wrap">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input id="searchInput" type="text" placeholder="搜索年份（如：-221 / 1492）或事件名称…" autocomplete="off" />
+      <div class="search-suggest" id="suggest"></div>
+    </div>
+
+    <div class="categories" id="categories"></div>
+
+    <div class="play-ctrl">
+      <button class="play-btn" id="playRestart" title="回到起点">⏮</button>
+      <button class="play-btn main" id="playToggle" title="播放 / 暂停（空格）">▶</button>
+      <button class="play-btn speed" id="playSpeed" title="播放速度">1×</button>
+    </div>
+  </header>
+
+  <!-- 底部时间轴面板 -->
+  <section class="tl-panel">
+    <div class="tl-head">
+      <span class="tl-title">Timeline · 时间轴（拖拽 / 滚轮缩放 / 点击事件点查看详情）</span>
+      <span>
+        <button class="layer-btn" id="focusToggle" title="只显示当前年份±50年的事件">◎ 聚焦当前</button>
+        <button class="layer-btn" id="erasToggle" title="叠加当前年代的政权版图（数据随时间轴自动切换）">🏛 政权版图</button>
+        <span class="tl-attr">底图 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors · © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a> · 版图 <a href="https://github.com/Seshat-Global-History-Databank/cliopatria" target="_blank" rel="noopener">Cliopatria</a>/Seshat (CC BY 4.0) · 引擎 MapLibre GL</span>
+      </span>
+    </div>
+    <div class="tl-body">
+      <div class="timeline-wrap" id="wrap">
+        <canvas id="timeline"></canvas>
+        <div class="center-pointer"></div>
+        <div class="center-year" id="centerYear">公元 1 年</div>
+        <div class="tip" id="tip">
+          <div class="t-year"></div>
+          <div class="t-name"></div>
+        </div>
+        <div class="zoom-ctrl">
+          <button class="zoom-btn" id="zoomIn" title="放大（滚轮↑）">+</button>
+          <button class="zoom-btn" id="zoomOut" title="缩小（滚轮↓）">−</button>
+          <button class="zoom-btn" id="zoomReset" title="重置视图" style="font-size:13px;">⟲</button>
+        </div>
+      </div>
+
+      <aside class="minimap-wrap">
+        <div class="minimap-title">SPAN</div>
+        <canvas id="minimap"></canvas>
+        <div class="minimap-legend">
+          <span id="mmStart">-221</span>
+          <span id="mmEnd">1918</span>
+        </div>
+        <div class="minimap-label" id="mmRange">全时间跨度 2133 年</div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- 右侧事件栏 -->
+  <aside class="event-panel" id="eventPanel">
+    <div class="ep-head">
+      <span class="ep-title">事件栏</span>
+      <span class="ep-slice" id="epSlice">版图切片 —</span>
+    </div>
+    <div class="ep-sub">
+      <span id="epRange">当前时段</span>
+      <button class="ep-focus" id="epFocus" title="只列出当前年份±100年内的事件">◎ 窗口±100年</button>
+    </div>
+    <div class="ep-list" id="epList"></div>
+    <div class="ep-empty" id="epEmpty">该时段暂无事件</div>
+  </aside>
+</div>
+
+<!-- 地图控制按钮 -->
+<div class="map-ctrl" id="mapCtrl">
+  <button class="zoom-btn" id="mapZoomIn" title="地图放大">+</button>
+  <button class="zoom-btn" id="mapZoomOut" title="地图缩小">−</button>
+  <button class="zoom-btn" id="mapReset" title="重置地图视图" style="font-size:13px;">⟲</button>
+</div>
+
+<!-- 地图事件悬浮提示 -->
+<div class="map-tip" id="mapTip">
+  <div class="mt-year"></div>
+  <div class="mt-name"></div>
+  <div class="mt-place"></div>
+</div>
+
+<!-- 地图加载失败提示 -->
+<div class="map-error" id="mapError">地图引擎或底图加载失败，请检查网络连接。时间轴仍可独立使用。
+  <button id="mapRetry" style="margin-left:8px;padding:2px 10px;border-radius:6px;border:1px solid rgba(255,180,180,.5);background:rgba(255,255,255,.12);color:#fff;font-size:12px;cursor:pointer;">刷新重试</button>
+</div>
+
+<!-- 详情卡片 -->
+<div class="modal-mask" id="mask"></div>
+<div class="modal" id="modal" role="dialog" aria-modal="true">
+  <div class="m-head">
+    <div class="m-title">
+      <div class="m-year" id="mYear"><span class="badge" id="mCat">政治</span></div>
+      <div class="m-name" id="mName">事件名称</div>
+    </div>
+    <button class="close-btn" id="closeBtn" aria-label="关闭">×</button>
+  </div>
+  <div class="m-body" id="mBody">事件介绍…</div>
+  <div class="m-place" id="mPlace"></div>
+  <div class="m-foot">
+    <div>
+      <div class="m-section-title">相关人物</div>
+      <div class="related-people" id="mPeople"></div>
+    </div>
+    <div>
+      <div class="m-section-title">同期年度事件</div>
+      <div class="related-list" id="mRelated"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+ * 模块一：数据层（Events Data）
+ * 事件由 build.js 从 timeline.html 提取并注入坐标（lng/lat/place）
+ * ============================================================ */
+const CATEGORIES = [
+  { key: 'politics', name: '政治', color: '#c9a24b',   bg: 'rgba(201,162,75,.15)', bd: 'rgba(201,162,75,.55)', tx: '#f2d99a' },
+  { key: 'military', name: '军事', color: '#c06b5e',   bg: 'rgba(192,107,94,.15)', bd: 'rgba(192,107,94,.55)', tx: '#f2bcb2' },
+  { key: 'culture',  name: '文化', color: '#8a7bb8',   bg: 'rgba(138,123,184,.15)',bd: 'rgba(138,123,184,.55)',tx: '#cdc2ee' },
+  { key: 'tech',     name: '科技', color: '#5fa3b5',   bg: 'rgba(95,163,181,.15)', bd: 'rgba(95,163,181,.55)', tx: '#bfe0ea' },
+  { key: 'economy',  name: '经济', color: '#7aa66a',   bg: 'rgba(122,166,106,.15)',bd: 'rgba(122,166,106,.55)', tx: '#cfe4c4' }
+];
+const CATEGORY_MAP = Object.fromEntries(CATEGORIES.map(c => [c.key, c]));
+
+let EVENTS = [];
+let CITIES = [];
+
+/* ============================================================
+ * 模块二：工具函数层（Utils）
+ * ============================================================ */
+const MIN_YEAR = -221, MAX_YEAR = 1918; // 秦统一 ~ 一战结束
+const TOTAL_YEARS = MAX_YEAR - MIN_YEAR;
+
+function yearToStr(y) {
+  return y < 0 ? `公元前 ${-y} 年` : `公元 ${y} 年`;
+}
+function yearToStrShort(y) {
+  return y < 0 ? `-${-y}` : `+${y}`;
+}
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+function niceStep(rawStep) {
+  if (rawStep <= 0) return 1;
+  const pow = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const n = rawStep / pow;
+  let s;
+  if (n < 1.5) s = 1;
+  else if (n < 3) s = 2;
+  else if (n < 7) s = 5;
+  else s = 10;
+  return s * pow;
+}
+
+/* ============================================================
+ * 模块三：状态层（State）
+ * ============================================================ */
+const state = {
+  pixelsPerYear: 0.15,
+  minPpy: 0.08,
+  maxPpy: 60,
+  scrollLeft: 0,
+  cw: 0, ch: 0, dpr: 1,
+  activeCats: new Set(CATEGORIES.map(c => c.key)),
+  filteredIdx: [],
+  dragging: false,
+  pinchActive: false,
+  vx: 0, lastMoveT: 0, lastX: 0,
+  anim: { active: false, sFrom: 0, sTo: 0, pFrom: 0, pTo: 0, tStart: 0, tDur: 0 },
+  hoverIdx: -1,
+  selectedIdxs: new Set(),
+  highlightYear: null, highlightUntil: 0,
+  ripples: [],
+  // 播放状态
+  playing: false,
+  playSpeedMult: 1,
+  playYear: null, // 播放独立的"当前年份"（全跨度视图下时间轴无法滚动，年份仍需推进）
+  viewYear: null, // 跳转覆盖年份：时间轴滚不动时由它驱动徽章与地图，用户操作时间轴后失效
+};
+
+/* 地图模块挂载点（module script 就绪后填充） */
+const mapHooks = {
+  sync: null,          // 时间轴变化 → 更新地图显示窗口
+  applyCats: null,     // 分类筛选变化 → 更新地图过滤
+  setSelected: null,   // 选中事件 → 更新地图高亮环
+  flyToIdx: null,      // 飞行定位到事件
+  viewHash: null,      // 地图视图 → hash 字符串
+  applyViewHash: null, // 从 hash 恢复地图视图
+};
+
+/* 内容总像素宽度 */
+function contentWidth() { return TOTAL_YEARS * state.pixelsPerYear; }
+function maxScroll()     { return Math.max(0, contentWidth() - state.cw); }
+function yearToPx(y) { return (y - MIN_YEAR) * state.pixelsPerYear; }
+function pxToYear(px) { return MIN_YEAR + px / state.pixelsPerYear; }
+function centerYear() { return pxToYear(state.scrollLeft + state.cw / 2); }
+/* 年份取值优先级：播放 > 跳转覆盖 > 时间轴滚动位置 */
+function currentYear() {
+  if (state.playYear !== null) return state.playYear;
+  if (state.viewYear !== null) return state.viewYear;
+  return centerYear();
+}
+/* 用户操作时间轴后，跳转覆盖失效 */
+function resetViewYear() {
+  if (state.viewYear !== null) {
+    state.viewYear = null;
+    requestRender();
+  }
+}
+function pxToScreenX(px) { return px - state.scrollLeft; }
+function screenXToPx(sx) { return sx + state.scrollLeft; }
+
+/* ============================================================
+ * 模块四：初始化 & 分类按钮、Canvas 尺寸
+ * ============================================================ */
+const canvas    = document.getElementById('timeline');
+const ctx       = canvas.getContext('2d');
+const wrap      = document.getElementById('wrap');
+const miniCvs   = document.getElementById('minimap');
+const miniCtx   = miniCvs.getContext('2d');
+const tip       = document.getElementById('tip');
+const tYear     = tip.querySelector('.t-year');
+const tName     = tip.querySelector('.t-name');
+const centerEl  = document.getElementById('centerYear');
+const centerPtr = document.querySelector('.center-pointer');
+const catBox    = document.getElementById('categories');
+const modal     = document.getElementById('modal');
+const mask      = document.getElementById('mask');
+const suggestEl = document.getElementById('suggest');
+const searchEl  = document.getElementById('searchInput');
+
+function buildCategories() {
+  catBox.innerHTML = '';
+  CATEGORIES.forEach(c => {
+    const btn = document.createElement('button');
+    btn.className = 'cat-btn active';
+    btn.style.setProperty('--cat-bg', c.bg);
+    btn.style.setProperty('--cat-bd', c.bd);
+    btn.style.setProperty('--cat-tx', c.tx);
+    btn.innerHTML = `<span class="dot" style="background:${c.color}"></span>${c.name}`;
+    btn.dataset.cat = c.key;
+    btn.addEventListener('click', () => {
+      if (state.activeCats.has(c.key)) {
+        if (state.activeCats.size === 1) {
+          state.activeCats = new Set(CATEGORIES.map(x => x.key));
+          [...catBox.children].forEach(b => b.classList.add('active'));
+        } else {
+          state.activeCats.delete(c.key);
+          btn.classList.remove('active');
+        }
+      } else {
+        state.activeCats.add(c.key);
+        btn.classList.add('active');
+      }
+      recomputeFiltered();
+      requestRender();
+      scheduleHash();
+    });
+    catBox.appendChild(btn);
+  });
+}
+
+function recomputeFiltered() {
+  state.filteredIdx = EVENTS
+    .map((e, i) => ({e, i}))
+    .filter(x => state.activeCats.has(x.e.cat))
+    .sort((a, b) => a.e.year - b.e.year)
+    .map(x => x.i);
+  if (mapHooks.applyCats) mapHooks.applyCats();
+}
+
+/* ============================================================
+ * 右侧事件栏（Event Panel）
+ * 事件不再散布为时间轴/地图上的圆点：按当前年份 ± 窗口列成列表
+ * ============================================================ */
+const epListEl = document.getElementById('epList');
+const epEmptyEl = document.getElementById('epEmpty');
+const epRangeEl = document.getElementById('epRange');
+const epSliceEl = document.getElementById('epSlice');
+const epFocusBtn = document.getElementById('epFocus');
+let epMode = 0; // 0=±100年窗口 1=±50年窗口 2=精确到当年
+const EP_WIN = [100, 50, 0];
+const EP_LABEL = ['窗口±100年', '窗口±50年', '精确到当年'];
+let _epKey = '';
+
+function updateEventPanel() {
+  const cy = Math.round(currentYear());
+  const win = EP_WIN[epMode];
+  const lo = cy - win, hi = cy + win;
+  const sel = state.selectedIdxs.size ? [...state.selectedIdxs][0] : -1;
+  const cats = [...state.activeCats].sort().join(',');
+  // 精确到当年模式按年粒度刷新，窗口模式以 5 年为粒度，避免拖动时间轴时高频重建列表
+  const key = `${epMode === 2 ? cy : Math.round(cy / 5) * 5}|${epMode}|${sel}|${cats}`;
+  if (key === _epKey) return;
+  _epKey = key;
+
+  if (mapHooks.sliceInfo) epSliceEl.textContent = mapHooks.sliceInfo();
+  epRangeEl.textContent = epMode === 2
+    ? yearToStr(cy)
+    : `${yearToStrShort(lo)} ~ ${yearToStrShort(hi)}`;
+
+  const list = EVENTS
+    .filter(e => e.year >= lo && e.year <= hi && state.activeCats.has(e.cat))
+    .sort((a, b) => a.year - b.year || a.name.localeCompare(b.name, 'zh'));
+
+  epListEl.innerHTML = '';
+  if (!list.length) {
+    epEmptyEl.textContent = epMode === 2 ? '该年暂无事件' : '该时段暂无事件';
+    epEmptyEl.classList.add('show');
+    return;
+  }
+  epEmptyEl.classList.remove('show');
+  for (const e of list) {
+    const idx = EVENTS.indexOf(e);
+    const cat = CATEGORY_MAP[e.cat] || CATEGORIES[0];
+    const row = document.createElement('div');
+    row.className = 'ep-item' + (idx === sel ? ' sel' : '');
+    row.style.setProperty('--ep-c', cat.color);
+    const yr = e.year < 0 ? `前 ${-e.year}` : String(e.year);
+    row.innerHTML =
+      '<span class="ep-year">' + yr + '</span>' +
+      '<span class="ep-dot" style="background:' + cat.color + '"></span>' +
+      '<div class="ep-main"><div class="ep-name"></div><div class="ep-desc"></div></div>';
+    row.querySelector('.ep-name').textContent = e.name;
+    row.querySelector('.ep-desc').textContent =
+      (e.place ? e.place + ' · ' : '') + cat.name +
+      (e.importance === 3 ? ' · ★★★' : e.importance === 2 ? ' · ★★' : '');
+    row.addEventListener('click', () => goToEvent(idx, true));
+    epListEl.appendChild(row);
+  }
+}
+
+function epBtnLabel() {
+  epFocusBtn.textContent = '◎ ' + EP_LABEL[epMode];
+  epFocusBtn.title = epMode === 0
+    ? '只列出当前年份±100年内的事件'
+    : epMode === 1
+      ? '只列出当前年份±50年内的事件'
+      : '只列出当年发生的事件';
+  epFocusBtn.classList.toggle('on', epMode > 0);
+}
+function setEpFocus(v) {
+  // 兼容外部布尔调用：false→±100年窗口，true→±50年窗口
+  if (typeof v === 'boolean') epMode = v ? 1 : 0;
+  _epKey = '';
+  epBtnLabel();
+  updateEventPanel();
+}
+window.__setEpFocus = setEpFocus;
+epFocusBtn.addEventListener('click', () => {
+  epMode = (epMode + 1) % 3;
+  _epKey = '';
+  epBtnLabel();
+  updateEventPanel();
+});
+
+function resizeCanvas() {
+  const rect = wrap.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  state.dpr = dpr;
+  state.cw  = rect.width;
+  state.ch  = rect.height;
+
+  canvas.width  = Math.round(rect.width * dpr);
+  canvas.height = Math.round(rect.height * dpr);
+  canvas.style.width  = rect.width  + 'px';
+  canvas.style.height = rect.height + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  if (state._firstResize !== false) {
+    const target = state.cw / TOTAL_YEARS;
+    state.pixelsPerYear = clamp(target, state.minPpy, state.maxPpy);
+    state.scrollLeft = 0;
+    state._firstResize = false;
+  }
+  state.scrollLeft = clamp(state.scrollLeft, 0, maxScroll());
+
+  const mrect = miniCvs.getBoundingClientRect();
+  miniCvs.width  = Math.round(mrect.width * dpr);
+  miniCvs.height = Math.round(mrect.height * dpr);
+  miniCvs.style.width  = mrect.width + 'px';
+  miniCvs.style.height = mrect.height + 'px';
+  miniCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  state._mmW = mrect.width;
+  state._mmH = mrect.height;
+}
+
+/* ============================================================
+ * 模块五：渲染层（Render）
+ * ============================================================ */
+let _renderPending = false;
+function requestRender() {
+  if (_renderPending) return;
+  _renderPending = true;
+  requestAnimationFrame(() => {
+    _renderPending = false;
+    render();
+    renderMinimap();
+  });
+}
+
+function render() {
+  const W = state.cw, H = state.ch;
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
+  ctx.save();
+
+  drawEndFade(W, H);
+
+  const axisY = H * 0.58;
+  drawAxis(axisY, W, H);
+  drawEvents(axisY, W, H);
+  drawCenterHighlight(axisY, W, H);
+  drawRipples(W, H);
+
+  ctx.restore();
+
+  const cy = Math.round(currentYear());
+  centerEl.textContent = yearToStr(cy);
+  // 跳转覆盖年份时，指针滑到该年份的屏幕位置
+  if (centerPtr) {
+    if (state.viewYear !== null) {
+      const sx = clamp(pxToScreenX(yearToPx(state.viewYear)), 8, W - 8);
+      centerPtr.style.left = sx + 'px';
+    } else {
+      centerPtr.style.left = '50%';
+    }
+  }
+
+  // 时间轴 → 地图同步
+  if (mapHooks.sync) mapHooks.sync();
+  updateEventPanel();
+}
+
+function drawEndFade(W, H) {
+  const gL = ctx.createLinearGradient(0, 0, 30, 0);
+  gL.addColorStop(0, 'rgba(15,22,36,1)');
+  gL.addColorStop(1, 'rgba(15,22,36,0)');
+  ctx.fillStyle = gL;
+  ctx.fillRect(0, 0, 30, H);
+
+  const gR = ctx.createLinearGradient(W - 30, 0, W, 0);
+  gR.addColorStop(0, 'rgba(15,22,36,0)');
+  gR.addColorStop(1, 'rgba(15,22,36,1)');
+  ctx.fillStyle = gR;
+  ctx.fillRect(W - 30, 0, 30, H);
+}
+
+function drawAxis(axisY, W, H) {
+  ctx.save();
+  ctx.strokeStyle = 'rgba(200,208,224,.25)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, axisY);
+  ctx.lineTo(W, axisY);
+  ctx.stroke();
+
+  const yL = pxToYear(screenXToPx(-40));
+  const yR = pxToYear(screenXToPx(W + 40));
+  const ppy = state.pixelsPerYear;
+
+  const microStep = niceStep(18 / Math.max(1e-6, ppy));
+  const midStep   = Math.max(10, niceStep(60  / Math.max(1e-6, ppy)));
+  const macroStep = Math.max(100, niceStep(140 / Math.max(1e-6, ppy)));
+
+  drawTicks(yL, yR, macroStep, axisY, 'macro', W);
+  drawTicks(yL, yR, midStep,   axisY, 'mid',   W);
+  drawTicks(yL, yR, microStep, axisY, 'micro', W);
+
+  if (state.highlightYear !== null && performance.now() < state.highlightUntil) {
+    const sx = pxToScreenX(yearToPx(state.highlightYear));
+    const alpha = (state.highlightUntil - performance.now()) / 1400;
+    if (alpha > 0 && sx > -5 && sx < W + 5) {
+      ctx.save();
+      ctx.strokeStyle = `rgba(201,162,75,${0.6 * alpha})`;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(sx, 20); ctx.lineTo(sx, H - 30);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  ctx.restore();
+}
+
+function drawTicks(yL, yR, step, axisY, kind, W) {
+  let start = Math.ceil(yL / step) * step;
+  if (start < MIN_YEAR) start += step;
+  if (start < MIN_YEAR) start = MIN_YEAR + (Math.ceil((MIN_YEAR - start) / step)) * step;
+  for (let y = start; y <= Math.min(yR, MAX_YEAR); y += step) {
+    if (y < MIN_YEAR || y > MAX_YEAR) continue;
+    const px = yearToPx(y);
+    const sx = pxToScreenX(px);
+    if (sx < -20 || sx > W + 20) continue;
+
+    let len, color, lw, labelFont, labelColor, drawLabel = false;
+
+    if (kind === 'macro') {
+      len = 18; color = 'rgba(220,226,240,.45)'; lw = 1.5;
+      drawLabel = true;
+      labelFont = '600 13px -apple-system, "PingFang SC", sans-serif';
+      labelColor = 'rgba(232,236,244,.85)';
+    } else if (kind === 'mid') {
+      len = 12; color = 'rgba(180,192,216,.35)'; lw = 1;
+      drawLabel = (state.pixelsPerYear >= 0.4);
+      labelFont = '500 11px "SF Mono", Consolas, monospace';
+      labelColor = 'rgba(200,208,228,.72)';
+    } else {
+      len = 6; color = 'rgba(160,172,200,.22)'; lw = 1;
+      const isDecade = (y % 10 === 0);
+      if (isDecade && state.pixelsPerYear >= 3) {
+        len = 10; color = 'rgba(190,200,225,.45)';
+        drawLabel = true;
+        labelFont = '500 10px "SF Mono", Consolas, monospace';
+        labelColor = 'rgba(200,210,230,.75)';
+      }
+    }
+
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lw;
+    ctx.beginPath();
+    ctx.moveTo(sx, axisY - len);
+    ctx.lineTo(sx, axisY + len * 0.35);
+    ctx.stroke();
+    ctx.restore();
+
+    if (drawLabel) {
+      const label = formatTickLabel(y, kind);
+      ctx.save();
+      ctx.font = labelFont;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = labelColor;
+      const tx = sx, ty = axisY + 8 + (kind === 'macro' ? 6 : 0);
+      if (kind === 'macro') {
+        const padX = 6, padY = 2;
+        ctx.font = labelFont;
+        const tw = ctx.measureText(label).width;
+        ctx.fillStyle = 'rgba(201,162,75,.1)';
+        roundRect(ctx, tx - tw/2 - padX, ty - padY, tw + padX*2, 16 + padY*2, 4);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(201,162,75,.28)';
+        ctx.lineWidth = 1;
+        roundRect(ctx, tx - tw/2 - padX, ty - padY, tw + padX*2, 16 + padY*2, 4);
+        ctx.stroke();
+        ctx.fillStyle = '#f2d99a';
+      }
+      ctx.fillText(label, tx, ty + 1);
+      ctx.restore();
+    }
+  }
+}
+
+function formatTickLabel(y, kind) {
+  if (kind === 'macro') {
+    if (y === 0) return `元年（公元1年前后）`;
+    // 全局视图：紧凑数字标签，避免长标签互相重叠
+    if (state.pixelsPerYear < 0.3) {
+      return y < 0 ? `前${-y}` : `${y}`;
+    }
+    if (state.pixelsPerYear < 1.2) {
+      // 中低倍：世纪标注
+      if (y < 0) {
+        const c = Math.ceil(-y / 100);
+        return `公元前 ${c} 世纪`;
+      } else {
+        const c = Math.ceil(y / 100);
+        return `公元 ${c} 世纪`;
+      }
+    }
+    return yearToStrShort(y).replace('+','');
+  }
+  const s = y < 0 ? `-${-y}` : `${y}`;
+  return s;
+}
+
+function roundRect(c, x, y, w, h, r) {
+  r = Math.min(r, w/2, h/2);
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y,     x + w, y + h, r);
+  c.arcTo(x + w, y + h, x,     y + h, r);
+  c.arcTo(x,     y + h, x,     y,     r);
+  c.arcTo(x,     y,     x + w, y,     r);
+  c.closePath();
+}
+
+function drawEvents(axisY, W, H) {
+  const yL = pxToYear(state.scrollLeft - 20);
+  const yR = pxToYear(state.scrollLeft + W + 20);
+
+  const byYear = new Map();
+  for (const idx of state.filteredIdx) {
+    const e = EVENTS[idx];
+    if (e.year < yL - 1 || e.year > yR + 1) continue;
+    if (!byYear.has(e.year)) byYear.set(e.year, []);
+    byYear.get(e.year).push(idx);
+  }
+
+  ctx.save();
+  const interact = state.dragging || state.anim.active;
+  for (const [year, idxList] of byYear) {
+    const baseX = pxToScreenX(yearToPx(year));
+    if (baseX < -80 || baseX > W + 80) continue;
+    idxList.forEach((idx) => {
+      const e = EVENTS[idx];
+      const cat = CATEGORY_MAP[e.cat];
+      const isHover = (state.hoverIdx === idx);
+      const isSel   = state.selectedIdxs.has(idx);
+      const h = Math.min(15, 5 + e.importance * 3);
+
+      // 事件在时间轴上以竖线标记（详情统一走右侧事件栏，不再渲染圆点球）
+      ctx.strokeStyle = isHover || isSel
+        ? cat.color
+        : `rgba(205,214,232,${0.28 + e.importance * 0.1})`;
+      ctx.lineWidth = (isHover || isSel) ? 2 : 1;
+      ctx.beginPath();
+      ctx.moveTo(baseX, axisY - h);
+      ctx.lineTo(baseX, axisY);
+      ctx.stroke();
+
+      if ((isHover || isSel) && !interact) {
+        ctx.save();
+        ctx.font = '600 11px -apple-system, "PingFang SC", sans-serif';
+        const tw = ctx.measureText(e.name).width;
+        const padX = 6, padY = 3;
+        const lx = baseX;
+        const ly = axisY - h - 18;
+        const bgX = lx - tw/2 - padX;
+        const bgW = tw + padX * 2;
+        const bgH = 16 + padY * 2;
+        ctx.fillStyle = 'rgba(20,28,48,.94)';
+        roundRect(ctx, bgX, ly - padY, bgW, bgH, 5); ctx.fill();
+        ctx.strokeStyle = cat.color + 'aa';
+        ctx.lineWidth = 1;
+        roundRect(ctx, bgX, ly - padY, bgW, bgH, 5); ctx.stroke();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#f1f3f8';
+        ctx.fillText(e.name, lx, ly - padY + bgH / 2);
+        ctx.restore();
+      }
+    });
+  }
+  ctx.restore();
+}
+
+function drawCenterHighlight(axisY, W, H) {
+  const cx = W / 2;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(201,162,75,.2)';
+  ctx.setLineDash([2, 4]);
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(cx, axisY + 30);
+  ctx.lineTo(cx, H - 20);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawRipples(W, H) {
+  const now = performance.now();
+  for (let i = state.ripples.length - 1; i >= 0; i--) {
+    const r = state.ripples[i];
+    const t = (now - r.start) / r.dur;
+    if (t >= 1) { state.ripples.splice(i, 1); continue; }
+    const radius = lerp(r.r0, r.r1, t);
+    ctx.save();
+    ctx.strokeStyle = `rgba(201,162,75,${0.8 * (1 - t)})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(r.sx, r.sy, radius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+/* ========================= 迷你导航条 ========================= */
+function renderMinimap() {
+  if (!state._mmW) return;
+  const W = state._mmW, H = state._mmH;
+  miniCtx.save();
+  miniCtx.setTransform(1, 0, 0, 1, 0, 0);
+  miniCtx.clearRect(0, 0, miniCvs.width, miniCvs.height);
+  miniCtx.restore();
+
+  miniCtx.save();
+  miniCtx.strokeStyle = 'rgba(255,255,255,.06)';
+  miniCtx.lineWidth = 1;
+  roundRect(miniCtx, .5, .5, W - 1, H - 1, 6);
+  miniCtx.stroke();
+
+  const axisY = H * 0.5;
+  miniCtx.strokeStyle = 'rgba(200,208,224,.22)';
+  miniCtx.beginPath();
+  miniCtx.moveTo(10, axisY); miniCtx.lineTo(W - 10, axisY);
+  miniCtx.stroke();
+
+  const pctForYear = y => (y - MIN_YEAR) / TOTAL_YEARS;
+  for (const idx of state.filteredIdx) {
+    const e = EVENTS[idx];
+    const x = 10 + (W - 20) * pctForYear(e.year);
+    const cat = CATEGORY_MAP[e.cat];
+    const isSel = state.selectedIdxs.has(idx);
+    miniCtx.fillStyle = isSel ? '#fff' : cat.color;
+    miniCtx.globalAlpha = isSel ? 1 : (e.importance === 3 ? .85 : .55);
+    miniCtx.beginPath();
+    miniCtx.arc(x, axisY, (e.importance + 1) * 0.9, 0, Math.PI * 2);
+    miniCtx.fill();
+  }
+  miniCtx.globalAlpha = 1;
+
+  // 播放进度指示线（当前年份位置，播放时时间轴可能滚不动但指针仍前进）
+  const cw_ = contentWidth();
+  const vw = state.cw;
+  const leftPct = state.scrollLeft / Math.max(1, cw_);
+  const viewPct = vw / Math.max(1, cw_);
+  const rx = 10 + (W - 20) * clamp(leftPct, 0, 1);
+  const rw = (W - 20) * clamp(viewPct, 0.02, 1);
+  const ry = 6, rh = H - 12;
+
+  miniCtx.fillStyle = 'rgba(15,22,36,.55)';
+  miniCtx.fillRect(10, ry, Math.max(0, rx - 10), rh);
+  miniCtx.fillRect(Math.min(W - 10, rx + rw), ry, Math.max(0, W - 10 - (rx + rw)), rh);
+
+  miniCtx.strokeStyle = 'rgba(201,162,75,.8)';
+  miniCtx.fillStyle = 'rgba(201,162,75,.10)';
+  miniCtx.lineWidth = 1;
+  roundRect(miniCtx, rx, ry, rw, rh, 4);
+  miniCtx.fill();
+  roundRect(miniCtx, rx + .5, ry + .5, rw - 1, rh - 1, 4);
+  miniCtx.stroke();
+
+  const cpct = clamp((currentYear() - MIN_YEAR) / TOTAL_YEARS, 0, 1);
+  const cxx = 10 + (W - 20) * cpct;
+  miniCtx.strokeStyle = 'rgba(242,217,154,.85)';
+  miniCtx.lineWidth = 1.2;
+  miniCtx.beginPath();
+  miniCtx.moveTo(cxx, ry - 2); miniCtx.lineTo(cxx, ry + rh + 2);
+  miniCtx.stroke();
+
+  miniCtx.restore();
+
+  const sY = Math.round(pxToYear(state.scrollLeft));
+  const eY = Math.round(pxToYear(state.scrollLeft + vw));
+  document.getElementById('mmRange').textContent =
+    `视口：${yearToStrShort(sY)} → ${yearToStrShort(eY)}`;
+}
+
+/* ============================================================
+ * 模块六：交互层
+ * ============================================================ */
+/* ---------- 播放控制（顶层，供交互处理器调用） ---------- */
+function updatePlayUI() {
+  const playToggle = document.getElementById('playToggle');
+  playToggle.textContent = state.playing ? '⏸' : '▶';
+  playToggle.classList.toggle('playing', state.playing);
+  document.getElementById('playSpeed').textContent = state.playSpeedMult + '×';
+}
+function stopPlay() {
+  if (state.playing) {
+    state.playing = false;
+    state.playYear = null;
+    updatePlayUI();
+    scheduleHash();
+    requestRender(); // 立即把徽章/地图同步回滚动驱动的年份
+  }
+}
+
+function start() {
+  buildCategories();
+  applyHashOnLoad();
+  recomputeFiltered();
+  resizeCanvas();
+  applyHashStartYear(); // 同步应用 hash 起始年份（不依赖 rAF，规避后台标签页节流）
+  window.addEventListener('resize', () => { resizeCanvas(); requestRender(); });
+
+  /* ---------- 滚轮：无级缩放（以光标为锚点） ---------- */
+  wrap.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    stopPlay();
+    resetViewYear();
+    const rect = wrap.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const anchorPx = screenXToPx(mx);
+    const anchorYearBefore = pxToYear(anchorPx);
+
+    const factor = Math.exp(-e.deltaY * 0.0015);
+    const newPpy = clamp(state.pixelsPerYear * factor, state.minPpy, state.maxPpy);
+    if (newPpy === state.pixelsPerYear) return;
+    state.pixelsPerYear = newPpy;
+
+    const newAnchorPx = yearToPx(anchorYearBefore);
+    state.scrollLeft = newAnchorPx - mx;
+    state.scrollLeft = clamp(state.scrollLeft, 0, maxScroll());
+
+    cancelAnim();
+    requestRender();
+  }, { passive: false });
+
+  /* ---------- 指针：拖拽 + 点击 ---------- */
+  let pointerStart = null;
+  let dragMoved = false;
+  let downTime = 0;
+
+  canvas.addEventListener('pointerdown', (e) => {
+    canvas.setPointerCapture(e.pointerId);
+    stopPlay();
+    resetViewYear();
+    const rect = wrap.getBoundingClientRect();
+    pointerStart = { x: e.clientX - rect.left, y: e.clientY - rect.top, id: e.pointerId };
+    state.dragging = true;
+    state.vx = 0; state.lastMoveT = performance.now(); state.lastX = pointerStart.x;
+    dragMoved = false;
+    downTime = performance.now();
+    cancelAnim();
+    hideTip();
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    const rect = wrap.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    if (state.dragging) {
+      const dx = pointerStart.x - mx;
+      if (maxScroll() < 1) {
+        // 全跨度视图：无滚动余量，横向拖拽 = 直接拨动年份（1px ≈ 1/ppy 年）
+        state.viewYear = clamp(
+          (state.viewYear !== null ? state.viewYear : centerYear()) - dx / Math.max(0.05, state.pixelsPerYear),
+          MIN_YEAR, MAX_YEAR);
+      } else {
+        state.scrollLeft = clamp(state.scrollLeft + dx, 0, maxScroll());
+      }
+      pointerStart.x = mx; pointerStart.y = my;
+      if (Math.abs(dx) > 2) dragMoved = true;
+
+      const now = performance.now();
+      const dt = Math.max(1, now - state.lastMoveT);
+      state.vx = (mx - state.lastX) / dt * 16;
+      state.lastMoveT = now;
+      state.lastX = mx;
+    } else if (!state.pinchActive) {
+      const idx = pickEvent(mx, my);
+      setHover(idx);
+    }
+
+    requestRender();
+  });
+
+  canvas.addEventListener('pointerup', (e) => {
+    if (!state.dragging) return;
+    state.dragging = false;
+    try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+    scheduleHash(); // 拖拽/擦洗结束后同步 URL 状态
+
+    const dt = performance.now() - downTime;
+    if (!dragMoved && dt < 320) {
+      const rect = wrap.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      handleClick(mx, my, e.clientX, e.clientY);
+      scheduleHash();
+    } else {
+      startInertia();
+    }
+  });
+
+  canvas.addEventListener('pointercancel', () => {
+    state.dragging = false;
+    startInertia();
+  });
+
+  canvas.addEventListener('dblclick', (e) => {
+    const rect = wrap.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    zoomAt(mx, 1.9);
+  });
+
+  /* ---------- 触控：双指缩放（Pinch） ---------- */
+  const touchState = { active: false, p0: null, p1: null, startDist: 0, startPpy: 0, startCenterPx: 0, startCenterX: 0 };
+  canvas.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 2) {
+      state.dragging = false;
+      state.pinchActive = true;
+      resetViewYear();
+      const a = e.touches[0], b = e.touches[1];
+      const rect = wrap.getBoundingClientRect();
+      touchState.p0 = { x: a.clientX - rect.left, y: a.clientY - rect.top };
+      touchState.p1 = { x: b.clientX - rect.left, y: b.clientY - rect.top };
+      touchState.startDist = Math.hypot(touchState.p0.x - touchState.p1.x, touchState.p0.y - touchState.p1.y);
+      touchState.startPpy  = state.pixelsPerYear;
+      const cx = (touchState.p0.x + touchState.p1.x) / 2;
+      touchState.startCenterX  = cx;
+      touchState.startCenterPx = screenXToPx(cx);
+      touchState.active = true;
+      cancelAnim();
+      e.preventDefault();
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', (e) => {
+    if (state.pinchActive && e.touches.length === 2) {
+      const a = e.touches[0], b = e.touches[1];
+      const rect = wrap.getBoundingClientRect();
+      const p0 = { x: a.clientX - rect.left, y: a.clientY - rect.top };
+      const p1 = { x: b.clientX - rect.left, y: b.clientY - rect.top };
+      const d = Math.hypot(p0.x - p1.x, p0.y - p1.y);
+      const factor = clamp(d / touchState.startDist, 0.05, 20);
+      const newPpy = clamp(touchState.startPpy * factor, state.minPpy, state.maxPpy);
+      state.pixelsPerYear = newPpy;
+
+      const newAnchorPx = yearToPx(pxToYear(touchState.startCenterPx));
+      const curCx = (p0.x + p1.x) / 2;
+      state.scrollLeft = newAnchorPx - curCx;
+      state.scrollLeft = clamp(state.scrollLeft, 0, maxScroll());
+      requestRender();
+      e.preventDefault();
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', () => {
+    if (state.pinchActive) {
+      state.pinchActive = false;
+      touchState.active = false;
+      requestRender();
+    }
+  });
+
+  /* ---------- 缩放按钮 ---------- */
+  document.getElementById('zoomIn').addEventListener('click', () => zoomAt(state.cw/2, 1.8));
+  document.getElementById('zoomOut').addEventListener('click',() => zoomAt(state.cw/2, 1/1.8));
+  document.getElementById('zoomReset').addEventListener('click', () => smoothReset());
+
+  /* ---------- 迷你导航条交互 ---------- */
+  let miniDrag = false;
+  function miniJump(e) {
+    stopPlay();
+    resetViewYear();
+    const rect = miniCvs.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const pct = clamp((x - 10) / Math.max(1, state._mmW - 20), 0, 1);
+    const cw_ = contentWidth();
+    const target = clamp(pct * cw_ - state.cw / 2, 0, maxScroll());
+    smoothScrollTo(target);
+  }
+  miniCvs.addEventListener('pointerdown', (e) => { miniDrag = true; miniJump(e); });
+  miniCvs.addEventListener('pointermove', (e) => { if (miniDrag) miniJump(e); });
+  window.addEventListener('pointerup', () => { miniDrag = false; });
+
+  /* ---------- 搜索 ---------- */
+  searchEl.addEventListener('input', () => updateSuggest());
+  searchEl.addEventListener('focus', () => updateSuggest());
+  searchEl.addEventListener('blur', () => {
+    setTimeout(() => suggestEl.classList.remove('active'), 180);
+  });
+  searchEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const val = searchEl.value.trim();
+      if (!val) return;
+      const y = parseYearMaybe(val);
+      if (y !== null) {
+        goToYear(y, true);
+      } else {
+        const items = searchEvents(val);
+        if (items.length) goToEvent(items[0].i, true);
+      }
+      suggestEl.classList.remove('active');
+    }
+  });
+
+  /* ---------- 播放控制 ---------- */
+  document.getElementById('playToggle').addEventListener('click', () => {
+    if (state.playing) {
+      stopPlay();
+    } else {
+      cancelAnim(); state.vx = 0;
+      if (currentYear() >= MAX_YEAR - 1) state.playYear = MIN_YEAR; // 播完后再按 = 从头播放
+      state.playing = true;
+      updatePlayUI();
+    }
+  });
+  document.getElementById('playSpeed').addEventListener('click', () => {
+    state.playSpeedMult = state.playSpeedMult === 1 ? 2 : state.playSpeedMult === 2 ? 4 : 1;
+    updatePlayUI();
+  });
+  document.getElementById('playRestart').addEventListener('click', () => {
+    stopPlay();
+    smoothScrollTo(0, { dur: 700 });
+  });
+  updatePlayUI();
+
+  /* ---------- 详情弹层 ---------- */
+  document.getElementById('closeBtn').addEventListener('click', closeModal);
+  mask.addEventListener('click', closeModal);
+  document.getElementById('mapRetry').addEventListener('click', () => location.reload());
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeModal();
+    if (e.code === 'Space' && !e.repeat &&
+        !['INPUT', 'TEXTAREA', 'BUTTON'].includes(document.activeElement.tagName)) {
+      e.preventDefault();
+      playToggle.click();
+    }
+  });
+
+  /* ---------- 鼠标提示跟随 ---------- */
+  wrap.addEventListener('mousemove', (e) => {
+    if (state.hoverIdx >= 0) {
+      const rect = wrap.getBoundingClientRect();
+      positionTip(e.clientX - rect.left, e.clientY - rect.top);
+    }
+  });
+
+  requestRender();
+  startRAFLoop();
+}
+
+/* 从 URL hash 恢复状态（#y=...&c=...） */
+function applyHashOnLoad() {
+  try {
+    const h = new URLSearchParams(location.hash.replace(/^#/, ''));
+    const cats = h.get('c');
+    if (cats) {
+      const set = new Set(cats.split(',').filter(k => CATEGORY_MAP[k]));
+      if (set.size > 0 && set.size < CATEGORIES.length) {
+        state.activeCats = set;
+        [...catBox.children].forEach(b =>
+          b.classList.toggle('active', set.has(b.dataset.cat)));
+      }
+    }
+    const y = parseInt(h.get('y'), 10);
+    if (!isNaN(y)) state._hashStartYear = y;
+  } catch (_) {}
+}
+
+/* 启动后把中心年份对到 hash 中的年份 */
+function applyHashStartYear() {
+  if (state._hashStartYear === undefined) return;
+  const y = clamp(state._hashStartYear, MIN_YEAR, MAX_YEAR);
+  if (maxScroll() < 1) state.viewYear = y; // 全跨度视图：由 viewYear 驱动
+  else state.scrollLeft = clamp(yearToPx(y) - state.cw / 2, 0, maxScroll());
+  state._hashStartYear = undefined;
+}
+
+/* URL hash 写入（节流） */
+let _hashTimer = 0;
+function scheduleHash() {
+  if (_hashTimer) return;
+  _hashTimer = setTimeout(() => { _hashTimer = 0; writeHash(); }, 400);
+}
+function writeHash() {
+  try {
+    const cy = Math.round(currentYear());
+    const cats = [...state.activeCats].sort().join(',');
+    const all = state.activeCats.size === CATEGORIES.length;
+    const p = new URLSearchParams();
+    p.set('y', String(cy));
+    if (!all) p.set('c', cats);
+    const mh = mapHooks.viewHash ? mapHooks.viewHash() : null;
+    if (mh) p.set('map', mh);
+    const ef = mapHooks.erasFlag ? mapHooks.erasFlag() : null;
+    if (ef === '0') p.set('e', '0'); // 关闭状态才写入，缺省=开启
+    const ff = mapHooks.focusFlag ? mapHooks.focusFlag() : null;
+    if (ff) p.set('f', ff);
+    history.replaceState(null, '', '#' + p.toString());
+  } catch (_) {}
+}
+
+/* ============================================================
+ * 模块七：缩放 / 动画（平滑滚动 / 惯性 / 播放）
+ * ============================================================ */
+function zoomAt(mx, factor) {
+  resetViewYear();
+  const anchorPx = screenXToPx(mx);
+  const yearBefore = pxToYear(anchorPx);
+  state.pixelsPerYear = clamp(state.pixelsPerYear * factor, state.minPpy, state.maxPpy);
+  const newPx = yearToPx(yearBefore);
+  state.scrollLeft = newPx - mx;
+  state.scrollLeft = clamp(state.scrollLeft, 0, maxScroll());
+  cancelAnim();
+  requestRender();
+}
+
+const PLAY_YRS_PER_SEC = 45; // 1× 速度：每秒推进 45 年
+let _lastPlayT = 0;
+
+let _lastFrame = 0;
+function startRAFLoop() {
+  function loop(t) {
+    if (!_lastFrame) _lastFrame = t;
+    const dt = Math.min(40, t - _lastFrame);
+    _lastFrame = t;
+    let need = false;
+
+    // 播放：由独立的 playYear 驱动（全跨度视图下时间轴滚不动，年份也照常推进）
+    if (state.playing) {
+      const dts = _lastPlayT ? Math.min(120, t - _lastPlayT) / 1000 : 0;
+      _lastPlayT = t;
+      if (dts > 0) {
+        if (state.playYear === null) state.playYear = currentYear();
+        // 播放按 5 年对齐推进：版图切片/时间显示以 5 年为粒度刷新
+        let ny = state.playYear + PLAY_YRS_PER_SEC * state.playSpeedMult * dts;
+        ny = Math.round(ny / 5) * 5;
+        state.playYear = Math.min(MAX_YEAR, ny);
+        state.scrollLeft = clamp(yearToPx(state.playYear) - state.cw / 2, 0, maxScroll());
+        if (state.playYear >= MAX_YEAR - 0.4) {
+          state.playing = false;
+          state.playYear = MAX_YEAR; // 停在终点（用户交互后回到滚动驱动）
+          updatePlayUI();
+          scheduleHash();
+        }
+        need = true;
+      }
+    } else {
+      _lastPlayT = 0;
+    }
+
+    // 平滑滚动/缩放动画
+    if (state.anim.active) {
+      const now = performance.now();
+      const k = clamp((now - state.anim.tStart) / Math.max(1, state.anim.tDur), 0, 1);
+      const et = 1 - Math.pow(1 - k, 3);
+      if (state.anim.pFrom !== state.anim.pTo) {
+        state.pixelsPerYear = clamp(lerp(state.anim.pFrom, state.anim.pTo, et), state.minPpy, state.maxPpy);
+      }
+      if (state.anim.yFrom !== state.anim.yTo) {
+        const cy = clamp(lerp(state.anim.yFrom, state.anim.yTo, et), MIN_YEAR, MAX_YEAR);
+        state.scrollLeft = clamp(yearToPx(cy) - state.cw / 2, 0, maxScroll());
+      }
+      if (k >= 1) {
+        state.anim.active = false;
+        if (typeof state.anim.yTo === 'number') {
+          const yEnd = clamp(state.anim.yTo, MIN_YEAR, MAX_YEAR);
+          state.scrollLeft = clamp(yearToPx(yEnd) - state.cw / 2, 0, maxScroll());
+        }
+        scheduleHash();
+      }
+      need = true;
+    }
+
+    // 惯性
+    if (Math.abs(state.vx) > 0.05 && !state.dragging && !state.anim.active) {
+      state.scrollLeft = clamp(state.scrollLeft - state.vx, 0, maxScroll());
+      state.vx *= Math.pow(0.94, dt / 16);
+      if (state.scrollLeft <= 0 || state.scrollLeft >= maxScroll()) state.vx *= -0.35;
+      need = true;
+    } else if (!state.anim.active) {
+      state.vx = 0;
+    }
+
+    if (state.ripples.length) need = true;
+
+    if (state.highlightYear !== null && performance.now() > state.highlightUntil) {
+      state.highlightYear = null;
+      need = true;
+    }
+
+    if (need) requestRender();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+}
+
+function smoothScrollTo(sTo, opts) {
+  const dur = (opts && opts.dur) ?? 650;
+  const yTo = clamp(MIN_YEAR + (clamp(sTo, 0, maxScroll()) + state.cw / 2) / state.pixelsPerYear, MIN_YEAR, MAX_YEAR);
+  state.anim = {
+    active: true,
+    yFrom: centerYear(), yTo,
+    pFrom: state.pixelsPerYear, pTo: state.pixelsPerYear,
+    sFrom: 0, sTo: 0,
+    tStart: performance.now(), tDur: dur,
+  };
+}
+function smoothReset() {
+  resetViewYear();
+  const target = state.cw / TOTAL_YEARS;
+  const pTo = clamp(target, state.minPpy, state.maxPpy);
+  const cyTarget = MIN_YEAR + TOTAL_YEARS / 2;
+  state.anim = {
+    active: true,
+    yFrom: centerYear(), yTo: cyTarget,
+    pFrom: state.pixelsPerYear, pTo: pTo,
+    sFrom: 0, sTo: 0,
+    tStart: performance.now(), tDur: 750,
+  };
+}
+function startInertia() {
+  if (Math.abs(state.vx) < 0.2) state.vx = 0;
+  requestRender();
+}
+function cancelAnim() {
+  state.anim.active = false;
+  state.vx = 0;
+}
+
+/* ============================================================
+ * 模块八：事件拾取 / 点击 / 详情卡
+ * ============================================================ */
+function pickEvent(mx, my) {
+  const yL = pxToYear(state.scrollLeft - 60);
+  const yR = pxToYear(state.scrollLeft + state.cw + 60);
+  let best = -1, bestDist = 1e9;
+  const axisY = state.ch * 0.58;
+  const byYear = new Map();
+  for (const idx of state.filteredIdx) {
+    const e = EVENTS[idx];
+    if (e.year < yL - 1 || e.year > yR + 1) continue;
+    if (!byYear.has(e.year)) byYear.set(e.year, []);
+    byYear.get(e.year).push(idx);
+  }
+  for (const [year, idxList] of byYear) {
+    const baseX = pxToScreenX(yearToPx(year));
+    idxList.forEach((idx) => {
+      const e = EVENTS[idx];
+      const dx = mx - baseX;
+      if (Math.abs(dx) > 7) return;
+      const h = Math.min(15, 5 + e.importance * 3);
+      if (my < axisY - h - 6 || my > axisY + 4) return;
+      const d = dx * dx;
+      if (d < bestDist) { bestDist = d; best = idx; }
+    });
+  }
+  return best;
+}
+
+function setHover(idx) {
+  if (idx === state.hoverIdx) return;
+  state.hoverIdx = idx;
+  if (idx < 0) hideTip();
+  else showTip(EVENTS[idx]);
+  requestRender();
+}
+
+function showTip(e) {
+  tYear.textContent = yearToStr(e.year);
+  tName.textContent = e.name;
+  tip.classList.add('show');
+}
+function hideTip() { tip.classList.remove('show'); }
+function positionTip(mx, my) {
+  const rect = wrap.getBoundingClientRect();
+  const tw = tip.offsetWidth;
+  let left = mx;
+  let top  = my;
+  left = clamp(left, tw/2 + 4, rect.width - tw/2 - 4);
+  tip.style.left = left + 'px';
+  tip.style.top  = clamp(top, 40, rect.height - 20) + 'px';
+}
+
+function handleClick(mx, my, clientX, clientY) {
+  const idx = pickEvent(mx, my);
+  if (idx < 0) {
+    state.selectedIdxs.clear();
+    if (mapHooks.setSelected) mapHooks.setSelected(-1);
+    requestRender();
+    return;
+  }
+  state.ripples.push({ sx: mx, sy: my, r0: 6, r1: 40, start: performance.now(), dur: 700 });
+  const r = document.createElement('div');
+  r.className = 'ripple';
+  r.style.left = (mx) + 'px';
+  r.style.top  = (my) + 'px';
+  wrap.appendChild(r);
+  setTimeout(() => r.remove(), 750);
+
+  const targetPx = yearToPx(EVENTS[idx].year) - state.cw / 2;
+  smoothScrollTo(targetPx, { dur: 620 });
+  state.selectedIdxs = new Set([idx]);
+  if (mapHooks.setSelected) mapHooks.setSelected(idx);
+  setHover(-1);
+
+  setTimeout(() => openModal(idx), 220);
+  requestRender();
+}
+
+/* 地图点击事件点 → 复用选中逻辑（由 module 脚本调用） */
+function selectEventFromMap(idx) {
+  const e = EVENTS[idx];
+  if (!e) return;
+  if (!state.activeCats.has(e.cat)) {
+    state.activeCats.add(e.cat);
+    const btn = catBox.querySelector(`[data-cat="${e.cat}"]`);
+    if (btn) btn.classList.add('active');
+    recomputeFiltered();
+  }
+  state.selectedIdxs = new Set([idx]);
+  if (mapHooks.setSelected) mapHooks.setSelected(idx);
+  smoothScrollTo(yearToPx(e.year) - state.cw / 2, { dur: 620 });
+  openModal(idx);
+  requestRender();
+}
+
+/* 详情卡片 */
+function openModal(idx) {
+  const e = EVENTS[idx];
+  const cat = CATEGORY_MAP[e.cat];
+  document.getElementById('mYear').innerHTML =
+    `<span class="badge" style="background:${cat.bg};color:${cat.tx};border-color:${cat.bd};">${cat.name}</span>
+     <span style="margin-left:6px;">${yearToStr(e.year)}</span>`;
+  document.getElementById('mName').textContent = e.name;
+  document.getElementById('mBody').textContent = e.desc;
+
+  // 事件地点 + 定位按钮
+  const placeEl = document.getElementById('mPlace');
+  if (e.place && typeof e.lng === 'number') {
+    placeEl.style.display = 'flex';
+    placeEl.innerHTML =
+      `<span>📍</span>
+       <span class="place-name">${e.place}</span>
+       <span class="place-geo">${e.lng.toFixed(2)}°E, ${e.lat.toFixed(2)}°N</span>
+       <button class="locate-btn" id="mLocate">在地图中定位</button>`;
+    document.getElementById('mLocate').addEventListener('click', () => {
+      closeModal();
+      state.selectedIdxs = new Set([idx]);
+      if (mapHooks.setSelected) mapHooks.setSelected(idx);
+      if (mapHooks.flyToIdx) mapHooks.flyToIdx(idx);
+      requestRender();
+    });
+  } else {
+    placeEl.style.display = 'none';
+    placeEl.innerHTML = '';
+  }
+
+  // 相关人物
+  const peopleBox = document.getElementById('mPeople');
+  peopleBox.innerHTML = '';
+  if (e.people && e.people.length) {
+    e.people.forEach(p => {
+      const el = document.createElement('span');
+      el.className = 'people-chip';
+      el.textContent = p;
+      peopleBox.appendChild(el);
+    });
+  } else {
+    peopleBox.innerHTML = '<span class="people-chip" style="color:#7a8398;">—</span>';
+  }
+
+  // 同期事件
+  const list = document.getElementById('mRelated');
+  list.innerHTML = '';
+  const nearby = EVENTS
+    .map((ev, i) => ({ev, i}))
+    .filter(x => x.i !== idx && state.activeCats.has(x.ev.cat))
+    .map(x => ({...x, diff: Math.abs(x.ev.year - e.year)}))
+    .sort((a, b) => a.diff - b.diff || a.ev.year - b.ev.year)
+    .slice(0, 6);
+  if (nearby.length === 0) {
+    list.innerHTML = '<div style="color:#7a8398;font-size:12px;padding:6px 10px;">暂无同期事件</div>';
+  } else {
+    nearby.forEach(x => {
+      const row = document.createElement('div');
+      row.className = 'related-item';
+      row.innerHTML = `<span>${x.ev.name}</span><span class="r-year">${yearToStrShort(x.ev.year)}</span>`;
+      row.addEventListener('click', () => {
+        closeModal();
+        setTimeout(() => { goToEvent(x.i, true); }, 220);
+      });
+      list.appendChild(row);
+    });
+  }
+
+  mask.classList.add('show');
+  modal.classList.add('show');
+}
+function closeModal() {
+  mask.classList.remove('show');
+  modal.classList.remove('show');
+}
+
+/* ============================================================
+ * 模块九：跳转 & 搜索
+ * ============================================================ */
+function goToYear(year, fitToDecade) {
+  year = clamp(Math.round(year), MIN_YEAR, MAX_YEAR);
+  state.highlightYear = year;
+  state.highlightUntil = performance.now() + 1800;
+
+  // 全跨度视图下时间轴无法滚动：直接用 viewYear 驱动徽章与地图
+  if (maxScroll() < 1) {
+    state.viewYear = year;
+    cancelAnim();
+    requestRender();
+    scheduleHash();
+    return;
+  }
+
+  if (fitToDecade) {
+    const pTarget = 30;
+    const dur = 650;
+    state.anim = {
+      active: true,
+      yFrom: centerYear(), yTo: year,
+      pFrom: state.pixelsPerYear,
+      pTo:   clamp(pTarget, state.minPpy, state.maxPpy),
+      sFrom: 0, sTo: 0,
+      tStart: performance.now(), tDur: dur,
+    };
+  } else {
+    state.anim = {
+      active: true,
+      yFrom: centerYear(), yTo: year,
+      pFrom: state.pixelsPerYear, pTo: state.pixelsPerYear,
+      sFrom: 0, sTo: 0,
+      tStart: performance.now(), tDur: 550,
+    };
+  }
+}
+
+function goToEvent(idx, zoomIn) {
+  const e = EVENTS[idx];
+  if (!state.activeCats.has(e.cat)) {
+    state.activeCats.add(e.cat);
+    const btn = catBox.querySelector(`[data-cat="${e.cat}"]`);
+    if (btn) btn.classList.add('active');
+    recomputeFiltered();
+  }
+  state.selectedIdxs = new Set([idx]);
+  if (mapHooks.setSelected) mapHooks.setSelected(idx);
+  goToYear(e.year, !!zoomIn);
+  if (mapHooks.flyToIdx) mapHooks.flyToIdx(idx);
+  setTimeout(() => openModal(idx), 700);
+}
+
+function parseYearMaybe(s) {
+  if (!s) return null;
+  const t = s.trim().replace(/[, ]/g, '');
+  let m;
+  if (/^(bc|BC|B\.C\.|公元前|前)\s*(-?\d{1,5})$/.test(t)) {
+    m = t.match(/^(?:bc|BC|B\.C\.|公元前|前)\s*(-?\d{1,5})$/);
+    return -Math.abs(parseInt(m[2], 10));
+  }
+  if (/^(-?\d{1,5})\s*(bc|BC|B\.C\.)$/.test(t)) {
+    m = t.match(/^(-?\d{1,5})\s*(?:bc|BC|B\.C\.)$/);
+    return -Math.abs(parseInt(m[1], 10));
+  }
+  if (/^(公元后?|ad|AD|A\.D\.)\s*(-?\d{1,5})$/.test(t)) {
+    m = t.match(/^(?:公元后?|ad|AD|A\.D\.)\s*(-?\d{1,5})$/);
+    return Math.abs(parseInt(m[2], 10));
+  }
+  if (/^(-?\d{1,5})$/.test(t)) {
+    return parseInt(RegExp.$1, 10);
+  }
+  return null;
+}
+
+function searchEvents(q) {
+  const k = q.trim().toLowerCase();
+  if (!k) return [];
+  return EVENTS
+    .map((e, i) => ({e, i, s: (e.name + ' ' + (e.place || '') + ' ' + (e.people||[]).join(' ')).toLowerCase()}))
+    .filter(x => x.s.includes(k))
+    .sort((a, b) => a.e.year - b.e.year);
+}
+
+function updateSuggest() {
+  const val = searchEl.value.trim();
+  suggestEl.innerHTML = '';
+  const items = [];
+  const y = parseYearMaybe(val);
+  if (y !== null) {
+    if (y >= MIN_YEAR && y <= MAX_YEAR) {
+      items.push({ type: 'year', label: `跳转到：${yearToStr(y)}`, year: y });
+    } else {
+      items.push({ type: 'year', label: `超出范围（仅支持 ${MIN_YEAR} ~ ${MAX_YEAR}）`, year: null });
+    }
+  }
+  const es = searchEvents(val).slice(0, 10);
+  for (const r of es) {
+    items.push({ type: 'ev', label: r.e.name, sub: yearToStr(r.e.year), idx: r.i });
+  }
+  if (!items.length) {
+    suggestEl.classList.remove('active');
+    return;
+  }
+  items.forEach(it => {
+    const row = document.createElement('div');
+    row.className = 'sg-item';
+    if (it.type === 'year') {
+      row.innerHTML = `<span>${it.label}</span><span class="sg-year">年 份</span>`;
+      if (it.year !== null) row.addEventListener('mousedown', (e) => { e.preventDefault(); goToYear(it.year, true); searchEl.value = ''; suggestEl.classList.remove('active'); });
+    } else {
+      row.innerHTML = `<span>${it.label}</span><span class="sg-year">${it.sub}</span>`;
+      row.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        goToEvent(it.idx, true);
+        searchEl.value = '';
+        suggestEl.classList.remove('active');
+      });
+    }
+    suggestEl.appendChild(row);
+  });
+  suggestEl.classList.add('active');
+}
+
+/* ============================================================
+ * 模块十：启动（数据经后端 REST API 按需加载）
+ * ============================================================ */
+window.__dataReady = (async () => {
+  try {
+    const [ev, ci] = await Promise.all([
+      fetch('api/events').then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
+      fetch('api/cities').then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
+    ]);
+    EVENTS = ev; CITIES = ci;
+    return true;
+  } catch (err) {
+    console.error('事件/城市数据加载失败', err);
+    const d = document.createElement('div');
+    d.style.cssText = 'position:fixed;left:50%;top:16%;transform:translateX(-50%);z-index:99;background:#2a2320;color:#f2bcb2;border:1px solid rgba(192,107,94,.6);padding:10px 18px;border-radius:8px;font-size:13px;line-height:1.6;box-shadow:0 6px 24px rgba(0,0,0,.4);';
+    d.innerHTML = '数据接口不可用：请确认后端服务已启动（双击「启动地图.bat」）<br><span style="opacity:.65">GET /api/events 失败</span>';
+    document.body.appendChild(d);
+    return false;
+  }
+})();
+window.__dataReady.then(ok => {
+  if (!ok) return;
+  start();
+  render(); renderMinimap(); // 首帧同步渲染（不依赖 rAF，避免后台标签页节流导致 UI 停留在占位状态）
+});
+</script>
+
+<script type="module">
+/* ============================================================
+ * 地图模块（MapLibre GL JS v6，ESM）
+ * 依赖经典脚本中的全局：EVENTS / state / CATEGORIES / centerYear 等
+ * ============================================================ */
+const mapError = document.getElementById('mapError');
+let maplibregl;
+try {
+  // 锁定大版本 @6（v6 起 CDN 仅提供 ESM 构建）
+  maplibregl = await import('https://cdn.jsdelivr.net/npm/maplibre-gl@6/dist/maplibre-gl.mjs');
+} catch (err) {
+  mapError.classList.add('show');
+  console.error('MapLibre 加载失败', err);
+}
+
+if (maplibregl) {
+  const DEFAULT_VIEW = { center: [45, 33], zoom: 1.15 };
+
+  // 从 hash 恢复地图视图（map=zoom/lon/lat）
+  let initial = null;
+  try {
+    const mh = new URLSearchParams(location.hash.replace(/^#/, '')).get('map');
+    if (mh) {
+      const [z, lon, lat] = mh.split('/').map(Number);
+      if ([z, lon, lat].every(v => typeof v === 'number' && isFinite(v))) {
+        initial = { zoom: clampN(z, 0, 12), center: [lon, lat] };
+      }
+    }
+  } catch (_) {}
+  function clampN(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+    center: initial ? initial.center : DEFAULT_VIEW.center,
+    zoom: initial ? initial.zoom : DEFAULT_VIEW.zoom,
+    attributionControl: false,
+    localIdeographFontFamily: '"PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif',
+  });
+  map.dragRotate.disable();
+  map.touchZoomRotate.disableRotation();
+  window.__map = map; // 调试句柄
+
+  /* ---------- 事件数据 → GeoJSON ---------- */
+  const features = EVENTS.map((e, i) => ({
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [e.lng, e.lat] },
+    properties: {
+      idx: i, year: e.year, name: e.name, cat: e.cat,
+      importance: e.importance, place: e.place || '',
+    },
+  }))
+  // 重要度升序排列 → 重要事件最后绘制（显示在最上层）
+  .sort((a, b) => a.properties.importance - b.properties.importance);
+  const eventsGJ = { type: 'FeatureCollection', features };
+
+  const catColor = ['match', ['get', 'cat'],
+    'politics', '#c9a24b',
+    'military', '#c06b5e',
+    'culture',  '#8a7bb8',
+    'tech',     '#5fa3b5',
+    'economy',  '#7aa66a',
+    '#8a93a8'];
+
+  const dotRadius = ['interpolate', ['linear'], ['zoom'],
+    1, ['match', ['get', 'importance'], 3, 6.5, 2, 5, 3.5],
+    5, ['match', ['get', 'importance'], 3, 11, 2, 8.5, 6]];
+
+    /* 事件点时间窗：只显示当前时间轴视口对应的时间段；播放游标附近额外高亮 */
+  let _cy = Math.round(currentYear());
+  let _cyL = MIN_YEAR, _cyR = MAX_YEAR;
+  let focusOn = false;
+  function eventFilter() {
+    const f = ['in', ['get', 'cat'], ['literal', [...state.activeCats]]];
+    if (!focusOn) return f;
+    return ['all', f, ['<=', ['abs', ['-', ['get', 'year'], _cy]], 50]];
+  }
+  // 大政权固定配色：避免随机哈希让相邻政权撞色（宋金西夏这类邻居必须区分明显）
+  const ERA_PALETTE = ['#8c6d3f', '#3f8c7a', '#7a3f8c', '#8c3f5f', '#5f8c3f', '#3f6d8c', '#8c563f', '#3f8c56', '#8a7bb8', '#8c3f8c', '#6d8c3f', '#c06b5e', '#5fa3b5', '#7aa66a', '#b0859b', '#5fa387', '#a3785f', '#6b7fa3', '#96854a', '#7a5fa3'];
+  const ERA_COLORS = ['#8c6d3f', '#6d8c3f', '#3f8c7a', '#3f6d8c', '#7a3f8c', '#8c3f5f',
+    '#8c563f', '#5f8c3f', '#3f8c56', '#3f5f8c', '#8c3f8c', '#8c8c3f'];
+  const eraColorExpr = ['match', ['get', 'C'],
+    ...ERA_COLORS.flatMap((c, i) => [i, c]), '#6b7385'];
+  // 未入选标注的政权用构建期 C 12 色色板，避免兜底灰融入底图而不可见
+  const ERA_FILL_EXPR = ['case', ['>=', ['get', '_ci'], 0],
+    ['match', ['get', '_ci'], ...ERA_PALETTE.flatMap((c, i) => [i, c]), '#6b7385'],
+    eraColorExpr];
+
+  /* ============================================================
+   * 政权中文显示名：_nz（数据侧 add-nz.js 考据注入）→ L1 精确表
+   * → L2 规则（去冠词/朝代后缀）再查 L1 → 回退英文源名
+   * Cliopatria NAME 保留源名以便溯源；宁缺毋滥，不假译
+   * ============================================================ */
+  const ZH_POLITIES = {
+    // —— 中国历代（Cliopatria 源名）——
+    'Xia Dynasty': '夏朝', 'Shang Dynasty': '商朝', 'Western Zhou': '西周', 'Eastern Zhou': '东周',
+    'Qin Dynasty': '秦', 'Western Han': '西汉', 'Eastern Han': '东汉',
+    'Cao Wei': '曹魏', 'Shu Han': '蜀汉', 'Eastern Wu': '东吴',
+    'Western Jin': '西晋', 'Eastern Jin': '东晋', 'Liu Song': '刘宋', 'Southern Qi': '南齐',
+    'Southern Liang': '南梁', 'Southern Chen': '南陈', 'Northern Wei': '北魏',
+    'Northern Qi': '北齐', 'Northern Zhou': '北周', 'Sui Dynasty': '隋朝', 'Tang Dynasty': '唐朝',
+    'Later Liang': '后梁', 'Later Tang': '后唐', 'Later Jin': '后晋',
+    'Later Han': '后汉', 'Later Zhou': '后周', 'Northern Song': '北宋', 'Southern Song': '南宋',
+    'Liao Dynasty': '辽', 'Great Jin': '金', 'Western Xia': '西夏', 'Yuan Dynasty': '元朝',
+    'Ming Dynasty': '明朝', 'Qing Dynasty': '清朝',
+    'Republic of China': '中华民国', "People's Republic of China": '中华人民共和国',
+    // —— 五代十国（950 切片源名，含 add-nz.js CORRECTIONS 已考据项）——
+    'Southern Wu': '南唐', 'Later Shu': '后蜀', 'Southern Chu': '楚',
+    'Southern Han': '南汉', 'Wuyue': '吴越', 'Jingnan': '荆南',
+    // —— 周边政权 ——
+    'Yenisei Kyrgyz': '黠戛斯', 'Tibetan Empire': '吐蕃', 'Tibetans': '吐蕃',
+    'Goguryeo': '高句丽', 'Baekje': '百济', 'Silla': '新罗', 'Tamna': '耽罗',
+    'Goryeo': '高丽', 'Heian Japan': '平安日本', 'Kamakura Shogunate': '镰仓幕府',
+    'Nanzhao': '南诏', 'Tuyuhun': '吐谷浑',
+    'Qocho Kingdom': '高昌回鹘', 'Kara-Khanids': '喀喇汗国', 'Srivijaya': '三佛齐',
+    'Khmer Empire': '高棉帝国', 'Pagan Kingdom': '蒲甘王朝', 'Ghaznavid Empire': '伽色尼王朝',
+    'Sultanate of Rum': '鲁姆苏丹国', 'Great Seljuq Empire': '大塞尔柱帝国', 'Samanid Empire': '萨曼王朝',
+    'Buyid Dynasty': '白益王朝',
+    // —— 西亚 / 埃及 ——
+    'Sasanian Empire': '萨珊帝国', 'Parthian Empire': '安息帝国', 'Achaemenid Empire': '阿契美尼德帝国',
+    'Neo-Assyrian Empire': '新亚述帝国', 'Neo-Babylonian Empire': '新巴比伦帝国',
+    'Fatimid Caliphate': '法蒂玛王朝', 'Almohad Caliphate': '穆瓦希德王朝',
+    'Abbasid Caliphate': '阿拔斯王朝', 'Umayyad Caliphate': '倭马亚王朝',
+    'Roman Empire': '罗马帝国', 'Byzantine Empire': '拜占庭帝国', 'Holy Roman Empire': '神圣罗马帝国',
+    'Ottoman Empire': '奥斯曼帝国', 'Timurid Empire': '帖木儿帝国', 'Mamluk Sultanate': '马穆鲁克苏丹国',
+    // —— 印度 ——
+    'Gupta Empire': '笈多帝国', 'Maurya Empire': '孔雀帝国', 'Mughal Empire': '莫卧儿帝国',
+    'Chola Empire': '朱罗帝国', 'Delhi Sultanate': '德里苏丹国',
+    // —— 草原 ——
+    'Xiongnu': '匈奴', 'Göktürks': '突厥', 'Turkic Khaganate': '突厥汗国', 'Uyghur Khaganate': '回鹘汗国',
+    'Kimek-Kipchak confederation': '基马克-钦察联盟',
+    // —— 欧洲王国/公国 ——
+    'Kingdom of England': '英格兰王国', 'Kingdom of France': '法兰西王国', 'Kingdom of Hungary': '匈牙利王国',
+    'Kingdom of Castile': '卡斯蒂利亚王国', 'Kingdom of Aragon': '阿拉贡王国', 'Kingdom of Navarre': '纳瓦拉王国',
+    'Kingdom of Sweden': '瑞典王国', 'Kingdom of Denmark': '丹麦王国', 'Kingdom of Scotland': '苏格兰王国',
+    'Kingdom of Portugal': '葡萄牙王国',
+    'Duchy of Burgundy': '勃艮第公国', 'Duchy of Brittany': '布列塔尼公国',
+    'Grand Duchy of Moscow': '莫斯科大公国', 'Novgorod Republic': '诺夫哥罗德共和国',
+    "Kievan Rus'": '基辅罗斯', 'Ghana Empire': '加纳帝国', 'Mali Empire': '马里帝国',
+    'Songhai Empire': '桑海帝国', 'Empire of Kanem': '卡涅姆帝国',
+    // —— 美洲 ——
+    'Aztec Triple Alliance': '阿兹特克帝国', 'Inca Empire': '印加帝国', 'Teotihuacan': '特奥蒂瓦坎',
+    'Zapotec Civilization': '萨波特克文明', 'Mayan City-States': '玛雅城邦',
+    // —— 希腊 ——
+    'Athens': '雅典', 'Sparta': '斯巴达',
+    // —— 面积/过滤兜底用（_nz 已考据但 L1 未列的高频名走 _nz，无需在此重复）——
+    'Dali': '大理', 'Kingdom of Dali': '大理',
+  };
+  // L2：去冠词/方位词/后缀后再查 L1（查找规则，不是音译引擎；未中即回退英文）
+  const ZH_STRIP_RE = [
+    /^(Kingdom|Empire|Duchy|County|Principality|Sultanate|Emirate|Republic|Caliphate|Grand Duchy|Tsardom|Shogunate)\s+of\s+/i,
+    /^(Late|Early|Western|Eastern|Northern|Southern|Former|Great)\s+/i,
+    /\s+(Dynasty|Empire|Kingdom|Republic)$/i,
+  ];
+  function zhPolityName(raw) {
+    if (!raw) return '';
+    if (ZH_POLITIES[raw]) return ZH_POLITIES[raw];
+    let n = raw;
+    for (const re of ZH_STRIP_RE) n = n.replace(re, '');
+    if (n !== raw && ZH_POLITIES[n]) return ZH_POLITIES[n];
+    return '';
+  }
+  function winOpacityExpr(maxAt) {
+    const fade = 80; // 从窗口起点淡入 80 年
+    return ['case',
+      ['>', ['get', 'year'], _cyR], 0,
+      ['<', ['get', 'year'], _cyL], 0,
+      ['interpolate', ['linear'], ['get', 'year'],
+        _cyL, 0, _cyL + fade, maxAt,
+        _cyR, maxAt]];
+  }
+  function spotlightExpr(maxAt) {
+    return ['interpolate', ['linear'],
+      ['abs', ['-', ['get', 'year'], _cy]],
+      0, maxAt, 60, maxAt, 160, 0];
+  }
+
+  let mapReady = false;
+  window.__mapErrors = [];
+  // 从 hash 读取版图图层开关（e=1）
+  const erasRequested = (() => {
+    try { return new URLSearchParams(location.hash.replace(/^#/, '')).get('e') !== '0'; } // 默认开启，e=0 关闭
+    catch (_) { return true; }
+  })();
+  const focusRequested = (() => {
+    try { return new URLSearchParams(location.hash.replace(/^#/, '')).get('f') === '1'; }
+    catch (_) { return false; }
+  })();
+  /* 底图弱化：现代国界虚化压暗，隐藏国家名标注（保留城市/海洋名） */
+  function softenBasemap() {
+    try {
+      const style = map.getStyle();
+      const layers = (style && style.layers) || [];
+      if (layers.length <= 2) return; // 极简降级底图无需处理
+      window.__restyle = { hidden: [], softened: [] };
+      for (const layer of layers) {
+        if (/^(eras|events)-/.test(layer.id)) continue;
+        if (layer.type === 'symbol' && /country/i.test(layer.id)) {
+          map.setLayoutProperty(layer.id, 'visibility', 'none');
+          window.__restyle.hidden.push(layer.id);
+        } else if (layer.type === 'line' && /admin|boundary/i.test(layer.id)) {
+          try { map.setPaintProperty(layer.id, 'line-opacity', 0.12); } catch (_) {}
+          try { map.setPaintProperty(layer.id, 'line-width', 0.5); } catch (_) {}
+          try { map.setPaintProperty(layer.id, 'line-dasharray', [2, 3]); } catch (_) {}
+          window.__restyle.softened.push(layer.id);
+        }
+      }
+    } catch (e) { console.error('底图弱化失败', e); }
+  }
+
+  map.on('load', setupLayers);
+  // setStyle 降级后 MapLibre 只触发 style.load（load 仅初始样式触发一次）
+  map.on('style.load', setupLayers);
+  function setupLayers() {
+    if (mapReady) return;
+    try {
+    // 事件不再以地图圆点渲染：由右侧「事件栏」列表承载（见经典脚本 updateEventPanel）
+
+    // 历史名城符号（★帝都 ◎都会 ●城市），随年代显示与升降级
+    // 符号用 Canvas 离屏绘制成位图（不依赖底图字形服务，跨网络稳定）
+    function makeSymImage(char, color, cssSize) {
+      const px = cssSize * 2; // @2x 渲染
+      const cv = document.createElement('canvas');
+      cv.width = px; cv.height = px;
+      const ctx = cv.getContext('2d');
+      ctx.font = Math.round(px * 0.82) + 'px "Segoe UI Symbol","Noto Sans Symbols 2","Microsoft YaHei",sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = color;
+      ctx.fillText(char, px / 2, px * 0.54);
+      const img = ctx.getImageData(0, 0, px, px);
+      return { width: px, height: px, data: new Uint8Array(img.data) };
+    }
+    map.addImage('sym-3', makeSymImage('★', '#e3b96a', 20), { pixelRatio: 2 });
+    map.addImage('sym-2', makeSymImage('◎', '#b9c2d4', 15), { pixelRatio: 2 });
+    map.addImage('sym-1', makeSymImage('●', '#8a93a8', 11), { pixelRatio: 2 });
+    map.addSource('cities', { type: 'geojson', data: EMPTY_FC });
+    map.addLayer({
+      id: 'cities-sym', type: 'symbol', source: 'cities',
+      layout: {
+        'icon-image': ['match', ['get', 'tier'], 3, 'sym-3', 2, 'sym-2', 'sym-1'],
+        'icon-size': 0.72,
+        'icon-allow-overlap': false,
+        'icon-padding': 1,
+      },
+      paint: {
+        'icon-opacity': 0.95,
+      },
+    });
+
+    map.on('mousemove', 'cities-sym', (e) => {
+      const f = e.features && e.features[0];
+      if (!f) return;
+      const p = f.properties || {};
+      const tl = p.tier === 3 ? '首都/帝都' : p.tier === 2 ? '区域中心' : '重要城市';
+      showMapTipContent('历史名城', p.name + (p.of ? ' — ' + p.of : '') + ' · ' + tl, '');
+      map.getCanvas().style.cursor = 'pointer';
+    });
+    map.on('mouseleave', 'cities-sym', () => { hideMapTip(); map.getCanvas().style.cursor = ''; });
+
+    mapReady = true;
+    mapError.classList.remove('show');
+    softenBasemap();
+    if (mapHooks.applyCats) mapHooks.applyCats();
+    if (mapHooks.sync) mapHooks.sync(true);
+    if (erasRequested) setEras(true); // 从 hash 恢复版图图层
+    if (focusRequested) {
+      focusOn = true;
+      const ftb = document.getElementById('focusToggle');
+      if (ftb) ftb.classList.add('on');
+      mapHooks.applyCats();
+    }
+    if (state.selectedIdxs.size) {
+      const first = [...state.selectedIdxs][0];
+      if (mapHooks.setSelected) mapHooks.setSelected(first);
+    }
+    } catch (err) {
+      window.__mapErrors.push('load-handler: ' + (err && err.message || err));
+    }
+  }
+
+  map.on('error', (e) => {
+    window.__mapErrors.push(String(e && e.error && e.error.message || e).slice(0, 300));
+    console.error('地图错误', e && e.error);
+  });
+  // 看门狗：10 秒内既无 load 也无任何源数据事件 = 渲染管线卡死
+  // → 静默刷新一次（sessionStorage 防循环）；再失败则降级极简底图并提示
+  let gotSourceContent = false;
+  map.on('sourcedata', (e) => {
+    if (e.dataType === 'source' && e.sourceDataType === 'content') gotSourceContent = true;
+  });
+  const FALLBACK_STYLE = {
+    version: 8,
+    sources: {},
+    layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#0b1120' } }],
+  };
+  setTimeout(() => {
+    const wedged = !mapReady || !gotSourceContent;
+    if (!wedged) { sessionStorage.removeItem('mapdex-reload'); return; }
+    if (!sessionStorage.getItem('mapdex-reload')) {
+      console.warn('地图渲染管线无响应，自动刷新重试');
+      sessionStorage.setItem('mapdex-reload', '1');
+      location.reload();
+    } else {
+      try { map.setStyle(FALLBACK_STYLE); } catch (_) {}
+      mapError.classList.add('show');
+    }
+  }, 10000);
+
+  /* ---------- 挂载双向联动钩子 ---------- */
+  mapHooks.sync = (force) => {
+    if (!mapReady) return;
+    const cy = Math.round(currentYear());
+    if (force || cy !== _cy) {
+      _cy = cy;
+    }
+    updateEra(); updateCities();
+  };
+
+
+  mapHooks.applyCats = () => {
+    // 事件不再渲染在地图上；分类筛选由右侧事件栏消费（经典脚本 recomputeFiltered）
+  };
+
+  mapHooks.setSelected = (idx) => {
+    // 事件选中高亮由右侧事件栏承担
+  };
+
+  mapHooks.sliceInfo = () => {
+    if (!erasManifest) return '版图切片 —';
+    const era = pickEraYear(currentYear());
+    return era ? '版图切片 · ' + era.l : '版图切片 —';
+  };
+
+  mapHooks.flyToIdx = (idx) => {
+    const e = EVENTS[idx];
+    if (!e || !mapReady) return;
+    const panelH = (document.querySelector('.tl-panel') || {}).offsetHeight || 240;
+    map.flyTo({
+      center: [e.lng, e.lat],
+      zoom: Math.max(map.getZoom(), 3),
+      padding: { bottom: panelH + 60 },
+      duration: 900,
+      essential: true,
+    });
+  };
+
+  mapHooks.viewHash = () => {
+    const c = map.getCenter(), z = map.getZoom();
+    return `${z.toFixed(2)}/${c.lng.toFixed(2)}/${c.lat.toFixed(2)}`;
+  };
+
+  /* ---------- 地图交互 ---------- */
+  const mapTip = document.getElementById('mapTip');
+  const mtYear = mapTip.querySelector('.mt-year');
+  const mtName = mapTip.querySelector('.mt-name');
+  const mtPlace = mapTip.querySelector('.mt-place');
+
+  function showMapTip(point, p) {
+    mtYear.textContent = (p.year < 0 ? `公元前 ${-p.year} 年` : `公元 ${p.year} 年`) + ' · ' + (p.importance === 3 ? '★★★' : p.importance === 2 ? '★★' : '★');
+    mtName.textContent = p.name;
+    mtPlace.textContent = p.place ? '📍 ' + p.place : '';
+    mapTip.style.left = point.x + 'px';
+    mapTip.style.top = point.y + 'px';
+    mapTip.classList.add('show');
+  }
+  function hideMapTip() { mapTip.classList.remove('show'); }
+  const lastEraMouse = { x: 0, y: 0 };
+  map.on('mousemove', (e) => { lastEraMouse.x = e.point.x; lastEraMouse.y = e.point.y; });
+  function showMapTipContent(y, n, s) {
+    mtYear.textContent = y;
+    mtName.textContent = n;
+    mtPlace.textContent = s;
+    mapTip.style.left = lastEraMouse.x + 'px';
+    mapTip.style.top = lastEraMouse.y + 'px';
+    mapTip.classList.add('show');
+  }
+
+  // 事件不在地图上渲染：交互统一走右侧事件栏（点击列表项 → goToEvent）
+  map.on('moveend', () => scheduleHash());
+
+  /* ============================================================
+   * 政权版图图层（Cliopatria / Seshat Global History Databank, CC BY 4.0）
+   * 时代切片文件名即年份：按当前年份取不晚于它的最近切片
+   * ============================================================ */
+  let erasOn = true, erasManifest = null, erasLoadedYear = null, erasLoading = null, hoverEraId = null;
+  const eraCache = new Map();
+  const EMPTY_FC = { type: 'FeatureCollection', features: [] };
+  function pickEraYear(year) {
+    if (!erasManifest) return null;
+    let best = null;
+    for (const e of erasManifest.eras) {
+      if (e.y <= year) best = e; else break;
+    }
+    return best || erasManifest.eras[0];
+  }
+
+  async function loadEraData(era) {
+    if (eraCache.has(era.y)) return eraCache.get(era.y);
+    const p = fetch('api/eras/' + era.y)
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+    eraCache.set(era.y, p);
+    return p;
+  }
+
+  async function updateEra() {
+    if (!erasOn || !erasManifest || !mapReady) return;
+    const era = pickEraYear(currentYear());
+    if (!era || era.y === erasLoadedYear) return;
+    if (erasLoading) return; // 上一次还在加载，sync 的下一帧会重试
+    erasLoading = (async () => {
+      try {
+        const fc = await loadEraData(era);
+        // 政权名标注：取面积最大的政权（排除泛称人群/文化），标在版图重心
+        // 显示名链：_nz（数据侧考据）→ zhPolityName（L1/L2 表）→ 英文源名
+        const displayZh = p => p._nz || zhPolityName(p.NAME) || p.NAME;
+        const labelBase = fc.features
+          .filter(f => (f.properties._a || 0) >= 25 &&
+            !/(hunter|gather|fisher|farmer|nomad|culture|tribe|peoples|city-states|文化|人群|部落)/i.test(displayZh(f.properties)))
+          .sort((a, b) => (b.properties._a || 0) - (a.properties._a || 0));
+        // 重点政权保送：宋金西夏辽蒙等永远入选并优先配色
+        const PRIORITY = ['南宋', '金', '西夏', '辽', '北宋', '唐朝', '吐蕃', '大理',
+          '前秦', '东晋', '前凉', '吐谷浑', '高句丽', '西域长史府',
+          '后汉', '后蜀', '南唐', '南汉', '吴越', '荆南', '甘州回鹘', '高昌回鹘', '于阗', '高丽',
+          '西周', '东周', '西汉', '东汉', '曹魏', '蜀汉', '隋朝', '秦'];
+        const chosen = [];
+        for (const pr of PRIORITY) {
+          const f = labelBase.find(x => {
+            const n = displayZh(x.properties);
+            return n && n.startsWith(pr);
+          });
+          if (f && !chosen.includes(f)) chosen.push(f);
+        }
+        for (const f of labelBase) {
+          if (chosen.length >= 20) break;
+          if (!chosen.includes(f)) chosen.push(f);
+        }
+        const labelFeats = chosen
+          .map((f, i) => ({ type: 'Feature',
+            geometry: { type: 'Point', coordinates: f.properties._c },
+            properties: { name: displayZh(f.properties), _ci: i } }))
+          .filter(f => f.properties.name);
+        // 大政权分配固定色号 _ci（与标注文字同色），其余用兜底灰
+        const colorIndex = {};
+        labelFeats.forEach(f => { colorIndex[f.properties.name] = f.properties._ci; });
+        for (const f of fc.features) {
+          const n = displayZh(f.properties);
+          f.properties._ci = (n && colorIndex[n] !== undefined) ? colorIndex[n] : -1;
+        }
+        map.getSource('eras') && map.getSource('eras').setData(fc);
+        if (map.getSource('eras-labels')) {
+          map.getSource('eras-labels').setData({ type: 'FeatureCollection', features: labelFeats });
+        }
+        erasLoadedYear = era.y;
+      } catch (e) {
+        console.error('版图数据加载失败', e);
+        eraCache.delete(era.y);
+      } finally { erasLoading = null; }
+    })();
+    await erasLoading;
+  }
+
+  function ensureErasLayers() {
+    if (map.getSource('eras')) return;
+    const beforeId = (map.getStyle().layers.find(l => l.type === 'symbol') || {}).id;
+    map.addSource('eras', { type: 'geojson', data: EMPTY_FC, generateId: true });
+    map.addSource('eras-labels', { type: 'geojson', data: EMPTY_FC });
+    map.addLayer({
+      id: 'eras-labels-sym', type: 'symbol', source: 'eras-labels',
+      minzoom: 0.9,
+      layout: {
+        'text-field': ['get', 'name'],
+        'text-font': ['Noto Sans Regular'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 1.2, 10, 5, 16],
+        'text-letter-spacing': 0.08,
+        'text-allow-overlap': true,
+        'text-padding': 6,
+        'text-max-width': 8,
+      },
+      paint: {
+        'text-color': ['match', ['get', '_ci'],
+          ...ERA_PALETTE.flatMap((c, i) => [i, c]), '#e8ecf4'],
+        'text-halo-color': 'rgba(0,0,0,0.8)',
+        'text-halo-width': 1.3,
+        'text-opacity': 0.95,
+      },
+    }, beforeId);
+    map.addLayer({
+      id: 'eras-fill', type: 'fill', source: 'eras',
+      paint: {
+        'fill-color': ERA_FILL_EXPR,
+        'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.55, 0.42],
+      },
+    }, beforeId);
+    map.addLayer({
+      id: 'eras-outline', type: 'line', source: 'eras',
+      paint: {
+        'line-color': ERA_FILL_EXPR,
+        'line-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 1, 0.75],
+        'line-width': ['case', ['boolean', ['feature-state', 'hover'], false], 2, 1.1],
+      },
+    }, beforeId);
+
+    // 悬停高亮 + 政权名提示
+    map.on('mousemove', 'eras-fill', (e) => {
+      const f = e.features && e.features[0];
+      if (!f || f.id == null) return;
+      map.getCanvas().style.cursor = 'pointer';
+      const p = f.properties || {};
+      const era = pickEraYear(currentYear());
+      const eraName = p._nz || zhPolityName(p.NAME) || p.NAME || '（未命名）';
+      const y2s = v => v == null ? '' : (v < 0 ? `前${-v}` : `${v}`);
+      showMapTipContent(
+        era ? `约 ${era.l} 政权疆域` : '政权疆域',
+        eraName,
+        [
+          p.start_year != null && p.end_year != null ? `存续 ${y2s(p.start_year)}–${y2s(p.end_year)} 年` : '',
+          p.capital ? `都城 ${p.capital}` : '',
+          p.wikipedia ? `Wikipedia: ${p.wikipedia}` : '',
+        ].filter(Boolean).join(' · '),
+      );
+    });
+    map.on('mouseleave', 'eras-fill', () => {
+      hideMapTip();
+    });
+
+  }
+
+  async function setEras(on) {
+    erasOn = on;
+    const btn = document.getElementById('erasToggle');
+    btn.classList.toggle('on', on);
+    if (!on) {
+      if (map.getSource('eras')) {
+        map.getSource('eras').setData(EMPTY_FC);
+      }
+      if (map.getSource('eras-labels')) {
+        map.getSource('eras-labels').setData(EMPTY_FC);
+      }
+      erasLoadedYear = null;
+      hideMapTip();
+      scheduleHash();
+      return;
+    }
+    if (!erasManifest) {
+      try {
+        erasManifest = await (await fetch('api/eras')).json();
+      } catch (e) {
+        console.error('版图清单加载失败', e);
+        btn.disabled = true;
+        btn.title = '版图数据加载失败：请确认后端服务已启动';
+        erasOn = false;
+        btn.classList.remove('on');
+        return;
+      }
+    }
+    ensureErasLayers();
+    await updateEra();
+    scheduleHash();
+  }
+
+  document.getElementById('erasToggle').addEventListener('click', () => setEras(!erasOn));
+  document.getElementById('focusToggle').addEventListener('click', () => {
+    focusOn = !focusOn;
+    document.getElementById('focusToggle').classList.toggle('on', focusOn);
+    // 聚焦开关同时作用于右侧事件栏窗口（±50 年）
+    if (window.__setEpFocus) window.__setEpFocus(focusOn);
+    requestRender();
+    scheduleHash();
+  });
+  mapHooks.erasFlag = () => (erasOn ? null : '0');
+  mapHooks.focusFlag = () => (focusOn ? '1' : null);
+  mapHooks.erasSet = (v) => { setEras(v); };
+
+  /* ---------- 历史名城按年代筛选 ---------- */
+  let citiesSig = '';
+  function updateCities() {
+    if (!mapReady || !map.getSource('cities')) return;
+    const cy = currentYear();
+    const feats = [];
+    let sig = '';
+    for (const c of CITIES) {
+      if (cy < c.from) continue;
+      if (c.to != null && cy > c.to) continue;
+      let tier = c.base || 1, of = '';
+      if (c.roles) for (const r of c.roles) {
+        if (cy >= r[0] && cy <= r[1]) { tier = r[2]; of = r[3]; break; }
+      }
+      const sym = tier === 3 ? '★' : tier === 2 ? '◎' : '●';
+      sig += sym;
+      feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [c.lng, c.lat] },
+        properties: { sym, tier, of, name: c.name } });
+    }
+    if (sig !== citiesSig) {
+      citiesSig = sig;
+      map.getSource('cities').setData({ type: 'FeatureCollection', features: feats });
+    }
+  }
+
+  /* ---------- 地图控制按钮 ---------- */
+  document.getElementById('mapZoomIn').addEventListener('click', () => map.zoomIn({ duration: 300 }));
+  document.getElementById('mapZoomOut').addEventListener('click', () => map.zoomOut({ duration: 300 }));
+  document.getElementById('mapReset').addEventListener('click', () => {
+    map.flyTo({ ...DEFAULT_VIEW, duration: 800, essential: true });
+  });
+}
+</script>
+</body>
+</html>

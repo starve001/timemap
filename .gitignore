@@ -1,0 +1,23 @@
+# ---- 构建产物 ----
+server/target/
+
+# ---- 运行残留（日志 / 进程文件） ----
+server/*.log
+server/*.err.log
+server/*.pid
+
+# ---- 大文件：Cliopatria 原始数据（约 165MB，超出 GitHub 单文件 100MB 限制） ----
+# 需要重建切片时，从 https://github.com/Seshat-Global-History-Databank/cliopatria 下载
+tools/cliopatria/cliopatria_polities_only.geojson
+
+# ---- IDE ----
+.idea/
+*.iml
+.vscode/
+
+# ---- 操作系统 ----
+.DS_Store
+Thumbs.db
+
+# ---- Node ----
+node_modules/
