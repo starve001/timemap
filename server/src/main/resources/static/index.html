@@ -1558,7 +1558,7 @@ function start() {
 
       const now = performance.now();
       const dt = Math.max(1, now - state.lastMoveT);
-      state.vx = (mx - state.lastX) / dt * 16;
+      state.vx = clamp((mx - state.lastX) / dt * 10, -15, 15);
       state.lastMoveT = now;
       state.lastX = mx;
     } else if (!state.pinchActive) {
@@ -1862,7 +1862,7 @@ function startRAFLoop() {
     // 惯性
     if (Math.abs(state.vx) > 0.05 && !state.dragging && !state.anim.active) {
       state.scrollLeft = clamp(state.scrollLeft - state.vx, 0, maxScroll());
-      state.vx *= Math.pow(0.94, dt / 16);
+      state.vx *= Math.pow(0.86, dt / 16);
       if (state.scrollLeft <= 0 || state.scrollLeft >= maxScroll()) state.vx *= -0.35;
       need = true;
     } else if (!state.anim.active) {
@@ -2661,11 +2661,11 @@ if (maplibregl) {
           .filter(f => (f.properties._a || 0) >= 25 &&
             !/(hunter|gather|fisher|farmer|nomad|culture|tribe|peoples|city-states|文化|人群|部落)/i.test(displayZh(f.properties)))
           .sort((a, b) => (b.properties._a || 0) - (a.properties._a || 0));
-        // 重点政权保送：宋金西夏辽蒙等永远入选并优先配色
-        const PRIORITY = ['南宋', '金', '西夏', '辽', '北宋', '唐朝', '吐蕃', '大理',
+        // 重点政权保送：宋金西夏辽蒙等永远入选并优先配色（译名须与 name-zh.json 一致）
+        const PRIORITY = ['南宋', '金', '西夏', '辽', '北宋', '唐', '吐蕃', '大理',
           '前秦', '东晋', '前凉', '吐谷浑', '高句丽', '西域长史府',
           '后汉', '后蜀', '南唐', '南汉', '吴越', '荆南', '甘州回鹘', '高昌回鹘', '于阗', '高丽',
-          '西周', '东周', '西汉', '东汉', '曹魏', '蜀汉', '隋朝', '秦'];
+          '周', '汉', '曹魏', '蜀汉', '隋', '秦'];
         const chosen = [];
         for (const pr of PRIORITY) {
           const f = labelBase.find(x => {
@@ -2675,12 +2675,25 @@ if (maplibregl) {
           if (f && !chosen.includes(f)) chosen.push(f);
         }
         for (const f of labelBase) {
-          if (chosen.length >= 20) break;
+          if (chosen.length >= 40) break;
           if (!chosen.includes(f)) chosen.push(f);
         }
+        // 标注几何取政权多边形（仅保留面积最大的子多边形），
+        // 标注锚点由 MapLibre 在多边形内部自动计算，避免外接矩形中心偏移到版图外
+        const biggestPart = g => {
+          const area = poly => {
+            const ring = poly[0] || poly;
+            let a = 0;
+            for (let i = 0; i < ring.length - 1; i++) a += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1];
+            return Math.abs(a);
+          };
+          if (g.type === 'Polygon') return g;
+          const best = [...g.coordinates].sort((a, b) => area(b) - area(a))[0];
+          return { type: 'Polygon', coordinates: best };
+        };
         const labelFeats = chosen
           .map((f, i) => ({ type: 'Feature',
-            geometry: { type: 'Point', coordinates: f.properties._c },
+            geometry: biggestPart(f.geometry),
             properties: { name: displayZh(f.properties), _ci: i } }))
           .filter(f => f.properties.name);
         // 大政权分配固定色号 _ci（与标注文字同色），其余用兜底灰
