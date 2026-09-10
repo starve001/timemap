@@ -2259,6 +2259,16 @@ try {
 if (maplibregl) {
   const DEFAULT_VIEW = { center: [45, 33], zoom: 1.15 };
 
+  /* 底图自动降级：当前 CDN 加载失败时按顺序切换下一个可用来源 */
+  const BASEMAP_STYLES = [
+    'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+    'https://tiles.openfreemap.org/styles/positron',
+    'https://tiles.openfreemap.org/styles/liberty',
+    'https://demotiles.maplibre.org/style.json',
+  ];
+  let basemapIdx = 0;
+  let overlayBound = false; // 地图事件处理器只绑定一次
+
   // 从 hash 恢复地图视图（map=zoom/lon/lat）
   let initial = null;
   try {
@@ -2274,7 +2284,7 @@ if (maplibregl) {
 
   const map = new maplibregl.Map({
     container: 'map',
-    style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+    style: BASEMAP_STYLES[0],
     center: initial ? initial.center : DEFAULT_VIEW.center,
     zoom: initial ? initial.zoom : DEFAULT_VIEW.zoom,
     attributionControl: false,
@@ -2491,15 +2501,19 @@ if (maplibregl) {
       },
     });
 
-    map.on('mousemove', 'cities-sym', (e) => {
-      const f = e.features && e.features[0];
-      if (!f) return;
-      const p = f.properties || {};
-      const tl = p.tier === 3 ? '首都/帝都' : p.tier === 2 ? '区域中心' : '重要城市';
-      showMapTipContent('历史名城', p.name + (p.of ? ' — ' + p.of : '') + ' · ' + tl, '');
-      map.getCanvas().style.cursor = 'pointer';
-    });
-    map.on('mouseleave', 'cities-sym', () => { hideMapTip(); map.getCanvas().style.cursor = ''; });
+    if (!overlayBound) {
+      overlayBound = true;
+      // 注意：layer 按 id 查询的事件处理器持久生效，只绑定一次即可
+      map.on('mousemove', 'cities-sym', (e) => {
+        const f = e.features && e.features[0];
+        if (!f) return;
+        const p = f.properties || {};
+        const tl = p.tier === 3 ? '首都/帝都' : p.tier === 2 ? '区域中心' : '重要城市';
+        showMapTipContent('历史名城', p.name + (p.of ? ' — ' + p.of : '') + ' · ' + tl, '');
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      map.on('mouseleave', 'cities-sym', () => { hideMapTip(); map.getCanvas().style.cursor = ''; });
+    }
 
     mapReady = true;
     mapError.classList.remove('show');
@@ -2523,8 +2537,19 @@ if (maplibregl) {
   }
 
   map.on('error', (e) => {
-    window.__mapErrors.push(String(e && e.error && e.error.message || e).slice(0, 300));
+    const msg = String(e && e.error && e.error.message || e).slice(0, 300);
+    window.__mapErrors.push(msg);
     console.error('地图错误', e && e.error);
+    // 底图 CDN 加载失败（Failed to fetch 等）→ 自动切换到下一个可用底图源
+    if (basemapIdx < BASEMAP_STYLES.length - 1 &&
+        (msg.toLowerCase().includes('fetch') || msg.toLowerCase().includes('network') ||
+         msg.toLowerCase().includes('load') || msg.toLowerCase().includes('failed'))) {
+      basemapIdx++;
+      console.warn('底图加载失败，切换到备用底图 ' + (basemapIdx + 1) + '/' + BASEMAP_STYLES.length);
+      mapReady = false;        // 允许 setupLayers 重建叠加图层
+      try { map.setStyle(BASEMAP_STYLES[basemapIdx]); } catch (_) {}
+      mapError.classList.remove('show');
+    }
   });
   // 看门狗：10 秒内既无 load 也无任何源数据事件 = 渲染管线卡死
   // → 静默刷新一次（sessionStorage 防循环）；再失败则降级极简底图并提示
@@ -2638,11 +2663,27 @@ if (maplibregl) {
     return best || erasManifest.eras[0];
   }
 
+  // 预取相邻切片：播放/拖拽时无缝切换，避免每个年份首次访问的加载卡顿
+  function prefetchEraNeighbors(era) {
+    if (!erasManifest) return;
+    const list = erasManifest.eras;
+    const i = list.indexOf(era);
+    for (const off of [1, 2, -1, -2]) {
+      const n = list[i + off];
+      if (n && !eraCache.has(n.y)) {
+        const p = fetch('api/eras/' + n.y)
+          .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+        eraCache.set(n.y, p);
+      }
+    }
+  }
+
   async function loadEraData(era) {
     if (eraCache.has(era.y)) return eraCache.get(era.y);
     const p = fetch('api/eras/' + era.y)
       .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
     eraCache.set(era.y, p);
+    prefetchEraNeighbors(era);
     return p;
   }
 
@@ -2757,7 +2798,8 @@ if (maplibregl) {
       },
     }, beforeId);
 
-    // 悬停高亮 + 政权名提示
+    // 悬停高亮 + 政权名提示（按 id 查询的处理器持久生效，只绑定一次）
+    if (!overlayBound) {
     map.on('mousemove', 'eras-fill', (e) => {
       const f = e.features && e.features[0];
       if (!f || f.id == null) return;
@@ -2779,6 +2821,7 @@ if (maplibregl) {
     map.on('mouseleave', 'eras-fill', () => {
       hideMapTip();
     });
+    }
 
   }
 
