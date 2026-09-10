@@ -1016,8 +1016,9 @@ function updateEventPanel() {
     : `${yearToStrShort(lo)} ~ ${yearToStrShort(hi)}`;
 
   const list = EVENTS
-    .filter(e => e.year >= lo && e.year <= hi && state.activeCats.has(e.cat))
-    .sort((a, b) => a.year - b.year || a.name.localeCompare(b.name, 'zh'));
+    .map((e, i) => ({e, i}))
+    .filter(x => x.e.year >= lo && x.e.year <= hi && state.activeCats.has(x.e.cat))
+    .sort((a, b) => a.e.year - b.e.year || a.e.name.localeCompare(b.e.name, 'zh'));
 
   epListEl.innerHTML = '';
   if (!list.length) {
@@ -1026,8 +1027,7 @@ function updateEventPanel() {
     return;
   }
   epEmptyEl.classList.remove('show');
-  for (const e of list) {
-    const idx = EVENTS.indexOf(e);
+  for (const {e, i: idx} of list) {
     const cat = CATEGORY_MAP[e.cat] || CATEGORIES[0];
     const row = document.createElement('div');
     row.className = 'ep-item' + (idx === sel ? ' sel' : '');
@@ -2653,6 +2653,14 @@ if (maplibregl) {
    * ============================================================ */
   let erasOn = true, erasManifest = null, erasLoadedYear = null, erasLoading = null, hoverEraId = null;
   const eraCache = new Map();
+  const ERA_CACHE_MAX = 8;
+  function eraCachePut(key, val) {
+    if (eraCache.has(key)) eraCache.delete(key);
+    eraCache.set(key, val);
+    while (eraCache.size > ERA_CACHE_MAX) { // LRU：淘汰最久未访问的切片，控制内存
+      eraCache.delete(eraCache.keys().next().value);
+    }
+  }
   const EMPTY_FC = { type: 'FeatureCollection', features: [] };
   function pickEraYear(year) {
     if (!erasManifest) return null;
@@ -2673,7 +2681,7 @@ if (maplibregl) {
       if (n && !eraCache.has(n.y)) {
         const p = fetch('api/eras/' + n.y)
           .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
-        eraCache.set(n.y, p);
+        eraCachePut(n.y, p);
       }
     }
   }
@@ -2682,7 +2690,7 @@ if (maplibregl) {
     if (eraCache.has(era.y)) return eraCache.get(era.y);
     const p = fetch('api/eras/' + era.y)
       .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
-    eraCache.set(era.y, p);
+    eraCachePut(era.y, p);
     prefetchEraNeighbors(era);
     return p;
   }

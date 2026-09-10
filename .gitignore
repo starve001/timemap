@@ -1,6 +1,9 @@
 # ---- 构建产物 ----
 server/target/
 
+# ---- 备份 ----
+_backup_*/
+
 # ---- 运行残留（日志 / 进程文件） ----
 server/*.log
 server/*.err.log
