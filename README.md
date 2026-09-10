@@ -10,6 +10,8 @@
 - **年份跳转**：在搜索框输入年份（如 `-221`、`1492`、`前221年`、`bc221`）回车，直达该年世界局势
 - **政权筛选**：按类别（帝国 / 王国 / 汗国 / 共和国等）与区域过滤显示
 - **数据可溯源**：每个政权均携带起止年份、首都、类别、来源等属性字段
+- **移动端适配**：小屏下事件栏收为底部抽屉（☰ 展开 / ✕ 收起），地图、时间轴与焦点定位功能完整保留
+- **AI 助手（可选）**：地图控制组「AI」按钮唤起对话面板，用自然语言问史（如「安史之乱在哪一年」「唐朝灭亡的时间」），大模型作答并可一键跳转到对应年份或事件
 
 ## 技术栈
 
@@ -17,6 +19,7 @@
 |----|------|
 | 前端 | 原生 HTML + JavaScript + MapLibre GL JS（单文件应用） |
 | 后端 | Java 21 + Spring Boot 3.5（REST API + 静态资源托管） |
+| AI | Java LangChain4j 1.15（OpenAI 兼容协议）→ 智谱 GLM（可选） |
 | 数据 | 56 个版图切片（GeoJSON，已几何简化）+ 事件库（JSON），派生自 Cliopatria / Seshat |
 
 ## 快速开始
@@ -38,6 +41,42 @@ java -jar target/mapdex-server.jar
 ```
 
 打开 <http://127.0.0.1:8090>
+
+## AI 助手（可选）
+
+AI 助手默认关闭，未配置时点击右下角「AI 助手」按钮会得到配置提示，不影响其余功能。
+
+**推荐方式：在页面内配置** —— 点击右下角悬浮「AI 助手」按钮 → 面板右上角「⚙」，可切换服务商预设，也可自定义 API 地址（Base URL）、API Key 与模型名，保存后立即生效、无需重启（配置会持久化到项目根目录 `ai-config.json`，已加入 `.gitignore`）。
+
+内置服务商预设（均走 OpenAI 兼容协议）：
+
+| 服务商 | 默认 Base URL |
+|--------|---------------|
+| 智谱 GLM | `https://open.bigmodel.cn/api/paas/v4` |
+| DeepSeek | `https://api.deepseek.com` |
+| OpenAI | `https://api.openai.com/v1` |
+| 通义千问（DashScope） | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+| Moonshot / Kimi | `https://api.moonshot.cn/v1` |
+| 硅基流动 SiliconFlow | `https://api.siliconflow.cn/v1` |
+
+以上 Base URL 与模型名都可在页面里手动改；凡提供 OpenAI 兼容接口的模型服务（含本地 / 自建部署，如 `http://localhost:xxxx/v1`）都能接入。
+
+其余开启方式（任选其一）：
+
+- **环境变量**：设置 `ZHIPU_API_KEY`（如 `setx ZHIPU_API_KEY sk-xxx` 后重开终端）
+- **配置文件**：在 `server/src/main/resources/application.properties` 中把 `mapdex.ai.api-key=` 填入智谱 API Key
+
+相关配置（`.properties` 中 `mapdex.ai.*`）：
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `mapdex.ai.api-key` | `${ZHIPU_API_KEY:}` | 智谱 API Key，优先读环境变量 |
+| `mapdex.ai.base-url` | `https://open.bigmodel.cn/api/paas/v4` | OpenAI 兼容网关 |
+| `mapdex.ai.model` | `glm-4-flash` | 模型名，可在页面设置中更换 |
+| `mapdex.ai.temperature` | `0.3` | 采样温度 |
+| `mapdex.ai.config-file` | `${user.dir}/ai-config.json` | 页面保存配置的持久化路径 |
+
+大模型负责理解意图、作答并给出「年份 / 事件名」，后端再在本机事件库上精确匹配，得到可靠的事件索引后由前端联动地图跳转（`/api/ai/chat`、`/api/ai/config`）。
 
 ## 目录结构
 
