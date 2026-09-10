@@ -463,6 +463,9 @@ html, body {
 }
 .map-ctrl .zoom-btn { width: 36px; height: 36px; background: rgba(13,19,34,.8); backdrop-filter: blur(10px); }
 
+/* 移动端事件栏开关 / 收起按钮：桌面默认隐藏 */
+.ep-toggle, .ep-close { display: none; }
+
 /* 地图加载失败提示 */
 .map-error {
   position: fixed;
@@ -656,6 +659,190 @@ html, body {
 }
 .layer-btn:disabled { opacity: .4; cursor: not-allowed; }
 
+/* ========================= AI 助手对话面板 ========================= */
+.ai-panel {
+  position: fixed;
+  right: 16px; bottom: 16px;
+  z-index: 900;
+  width: min(380px, 92vw);
+  height: min(520px, 72vh);
+  display: flex; flex-direction: column;
+  background: rgba(20,26,42,.94);
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 16px;
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  box-shadow: 0 20px 60px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06);
+  overflow: hidden;
+  opacity: 0; pointer-events: none; transform: translateY(12px) scale(.98);
+  transition: opacity .22s ease, transform .22s cubic-bezier(.2,.8,.2,1);
+}
+.ai-panel.open { opacity: 1; pointer-events: auto; transform: none; }
+.ai-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255,255,255,.07);
+}
+.ai-title { font-size: 13px; font-weight: 700; color: #f2d99a; letter-spacing: .5px; }
+.ai-status { font-size: 10px; color: #7a8398; margin-top: 2px; }
+.ai-close {
+  width: 26px; height: 26px; flex: 0 0 auto;
+  border-radius: 8px;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.1);
+  color: #b4bccd; font-size: 15px; line-height: 1; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: all .2s;
+}
+.ai-close:hover { background: rgba(255,255,255,.12); color: #fff; }
+.ai-body {
+  flex: 1; overflow-y: auto; min-height: 0;
+  padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.ai-body::-webkit-scrollbar { width: 6px; }
+.ai-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 3px; }
+.ai-msg {
+  max-width: 88%;
+  padding: 9px 12px;
+  border-radius: 12px;
+  font-size: 12.5px; line-height: 1.6;
+  white-space: pre-wrap; word-break: break-word;
+}
+.ai-msg.user {
+  align-self: flex-end;
+  background: rgba(201,162,75,.16);
+  border: 1px solid rgba(201,162,75,.35);
+  color: #f2d99a;
+}
+.ai-msg.bot {
+  align-self: flex-start;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.08);
+  color: #d8dbe6;
+}
+.ai-msg.error {
+  align-self: flex-start;
+  background: rgba(192,107,94,.14);
+  border-color: rgba(192,107,94,.4);
+  color: #f2bcb2;
+}
+.ai-msg .ai-locate {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-top: 9px;
+  padding: 5px 11px;
+  font-size: 11px;
+  border-radius: 8px;
+  background: rgba(95,163,181,.15);
+  border: 1px solid rgba(95,163,181,.5);
+  color: #bfe0ea; cursor: pointer;
+  transition: all .15s;
+}
+.ai-msg .ai-locate:hover { background: rgba(95,163,181,.3); }
+.ai-foot {
+  display: flex; gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid rgba(255,255,255,.07);
+}
+.ai-input {
+  flex: 1;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 10px;
+  color: #e6e8ef; padding: 9px 11px; font-size: 13px; outline: none;
+}
+.ai-input:focus { border-color: rgba(201,162,75,.5); }
+.ai-send {
+  padding: 0 15px;
+  border-radius: 10px;
+  background: rgba(201,162,75,.16);
+  border: 1px solid rgba(201,162,75,.4);
+  color: #f2d99a; cursor: pointer; font-size: 13px;
+  transition: all .2s;
+}
+.ai-send:hover { background: rgba(201,162,75,.28); }
+.ai-send:disabled { opacity: .5; cursor: not-allowed; }
+
+/* 醒目的 AI 入口（右下角悬浮按钮） */
+.ai-fab {
+  position: fixed;
+  right: 18px; bottom: 20px;
+  z-index: 850;
+  display: inline-flex; align-items: center; gap: 9px;
+  padding: 13px 20px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #e6bd6b, #c9a24b);
+  border: 1px solid rgba(255,255,255,.28);
+  color: #171c2b;
+  font-size: 14px; font-weight: 700; letter-spacing: 1px;
+  cursor: pointer;
+  box-shadow: 0 10px 30px rgba(201,162,75,.45), 0 2px 8px rgba(0,0,0,.4);
+  transition: transform .18s ease, box-shadow .18s ease, filter .18s ease, opacity .18s ease;
+}
+.ai-fab:hover { transform: translateY(-2px); box-shadow: 0 14px 36px rgba(201,162,75,.55); filter: brightness(1.05); }
+.ai-fab .ai-fab-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #171c2b; flex: 0 0 auto;
+}
+.ai-fab.off {
+  background: rgba(26,34,54,.88);
+  color: #f2d99a;
+  border-color: rgba(201,162,75,.5);
+  box-shadow: 0 8px 24px rgba(0,0,0,.45);
+}
+.ai-fab.off .ai-fab-dot { background: #8a93a8; }
+.ai-fab.hide { opacity: 0; pointer-events: none; transform: translateY(8px); }
+
+/* AI 设置面板（面板内折叠区） */
+.ai-head-actions { display: flex; align-items: center; gap: 6px; }
+.ai-icon-btn {
+  width: 26px; height: 26px; flex: 0 0 auto;
+  border-radius: 8px;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.1);
+  color: #b4bccd; font-size: 14px; line-height: 1; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: all .2s;
+}
+.ai-icon-btn:hover, .ai-icon-btn.on { background: rgba(201,162,75,.16); border-color: rgba(201,162,75,.4); color: #f2d99a; }
+.ai-config {
+  display: none;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255,255,255,.07);
+  background: rgba(255,255,255,.02);
+  flex-direction: column; gap: 11px;
+}
+.ai-config.open { display: flex; }
+.ai-config label { font-size: 11px; color: #8a93a8; letter-spacing: .5px; }
+.ai-config-row { display: flex; flex-direction: column; gap: 5px; }
+.ai-config input, .ai-config select {
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 10px;
+  color: #e6e8ef; padding: 8px 10px; font-size: 12.5px; outline: none;
+  width: 100%; box-sizing: border-box;
+}
+.ai-config select { cursor: pointer; }
+.ai-config select option { background: #1a2236; color: #e6e8ef; }
+.ai-config input:focus, .ai-config select:focus { border-color: rgba(201,162,75,.5); }
+.ai-config-actions { display: flex; align-items: center; gap: 8px; }
+.ai-save {
+  padding: 7px 16px; border-radius: 10px;
+  background: rgba(201,162,75,.18); border: 1px solid rgba(201,162,75,.45);
+  color: #f2d99a; cursor: pointer; font-size: 12.5px;
+  transition: all .2s;
+}
+.ai-save:hover { background: rgba(201,162,75,.3); }
+.ai-save:disabled { opacity: .5; cursor: not-allowed; }
+.ai-clear {
+  padding: 7px 12px; border-radius: 10px;
+  background: transparent; border: 1px solid rgba(192,107,94,.4);
+  color: #f2bcb2; cursor: pointer; font-size: 12px;
+  transition: all .2s;
+}
+.ai-clear:hover { background: rgba(192,107,94,.16); }
+.ai-config-state { font-size: 11px; color: #8a93a8; margin-left: auto; }
+
 /* ========================= 移动端 ========================= */
 @media (max-width: 900px) {
   .tl-body { grid-template-columns: 1fr; }
@@ -668,7 +855,28 @@ html, body {
   .categories { grid-column: 1 / -1; justify-content: flex-start; overflow-x: auto; flex-wrap: nowrap; padding-bottom: 2px; }
   .map-ctrl { top: auto; bottom: 38vh; transform: none; }
   .brand h1 { font-size: 13px; }
-  .event-panel { display: none; }
+
+  /* 事件栏改为底部抽屉：默认收起，点击开关滑出 */
+  .event-panel {
+    display: flex;
+    top: auto; right: 0; left: 0; bottom: 0;
+    width: auto; height: 56vh;
+    border-radius: 16px 16px 0 0;
+    border-bottom: none;
+    transform: translateY(105%);
+    transition: transform .28s cubic-bezier(.2,.8,.2,1);
+  }
+  .event-panel.open { transform: translateY(0); }
+  .ep-toggle, .ep-close { display: inline-flex; align-items: center; justify-content: center; }
+  .ep-close {
+    width: 26px; height: 26px; margin-left: 8px; flex: 0 0 auto;
+    background: rgba(255,255,255,.06);
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 8px; color: #cdd3e0; font-size: 13px; cursor: pointer;
+  }
+  .ep-close:hover { background: rgba(255,255,255,.12); }
+  /* 抽屉展开时收起地图控制组，避免其 ☰ 遮挡抽屉头部的 ✕ 关闭按钮 */
+  .map-ctrl.ep-open { display: none; }
 }
 </style>
 <script>
@@ -771,6 +979,7 @@ html, body {
     <div class="ep-head">
       <span class="ep-title">事件栏</span>
       <span class="ep-slice" id="epSlice">版图切片 —</span>
+      <button class="ep-close" id="epClose" title="收起">✕</button>
     </div>
     <div class="ep-sub">
       <span id="epRange">当前时段</span>
@@ -783,6 +992,7 @@ html, body {
 
 <!-- 地图控制按钮 -->
 <div class="map-ctrl" id="mapCtrl">
+  <button class="zoom-btn ep-toggle" id="epToggle" title="事件列表">☰</button>
   <button class="zoom-btn" id="mapZoomIn" title="地图放大">+</button>
   <button class="zoom-btn" id="mapZoomOut" title="地图缩小">−</button>
   <button class="zoom-btn" id="mapReset" title="重置地图视图" style="font-size:13px;">⟲</button>
@@ -821,6 +1031,63 @@ html, body {
       <div class="m-section-title">同期年度事件</div>
       <div class="related-list" id="mRelated"></div>
     </div>
+  </div>
+</div>
+
+<!-- AI 助手入口（右下角悬浮按钮） -->
+<button class="ai-fab" id="aiToggle" title="打开 AI 助手">
+  <span class="ai-fab-dot" id="aiFabDot"></span>
+  <span>AI 助手</span>
+</button>
+
+<!-- AI 助手对话面板 -->
+<div class="ai-panel" id="aiPanel">
+  <div class="ai-head">
+    <div>
+      <div class="ai-title">AI 助手</div>
+      <div class="ai-status" id="aiStatus">历史时序问答 · 支持跳转定位</div>
+    </div>
+    <div class="ai-head-actions">
+      <button class="ai-icon-btn" id="aiConfigBtn" title="设置">⚙</button>
+      <button class="ai-close" id="aiClose" aria-label="关闭">×</button>
+    </div>
+  </div>
+  <div class="ai-config" id="aiConfig">
+    <div class="ai-config-row">
+      <label for="aiProvider">服务商（OpenAI 兼容接口）</label>
+      <select id="aiProvider">
+        <option value="zhipu">智谱 GLM（bigmodel.cn）</option>
+        <option value="deepseek">DeepSeek</option>
+        <option value="openai">OpenAI</option>
+        <option value="qwen">通义千问（DashScope）</option>
+        <option value="moonshot">Moonshot / Kimi</option>
+        <option value="siliconflow">硅基流动 SiliconFlow</option>
+        <option value="custom">自定义…</option>
+      </select>
+    </div>
+    <div class="ai-config-row">
+      <label for="aiBaseUrl">API 地址（Base URL）</label>
+      <input type="text" id="aiBaseUrl" placeholder="https://api.openai.com/v1" autocomplete="off" />
+    </div>
+    <div class="ai-config-row">
+      <label for="aiKeyInput">API Key（留空则保持不变）</label>
+      <input type="password" id="aiKeyInput" placeholder="sk-…" autocomplete="off" />
+    </div>
+    <div class="ai-config-row">
+      <label for="aiModelInput">模型（可自由输入）</label>
+      <input type="text" id="aiModelInput" list="aiModelList" placeholder="如 glm-4-flash / deepseek-chat" autocomplete="off" />
+      <datalist id="aiModelList"></datalist>
+    </div>
+    <div class="ai-config-actions">
+      <button class="ai-save" id="aiSave">保存</button>
+      <button class="ai-clear" id="aiClearKey" title="删除已保存的密钥">清除密钥</button>
+      <span class="ai-config-state" id="aiConfigState"></span>
+    </div>
+  </div>
+  <div class="ai-body" id="aiBody"></div>
+  <div class="ai-foot">
+    <input class="ai-input" id="aiInput" type="text" placeholder="问我：安史之乱发生在哪一年？" autocomplete="off" />
+    <button class="ai-send" id="aiSend">发送</button>
   </div>
 </div>
 
@@ -1069,6 +1336,18 @@ epFocusBtn.addEventListener('click', () => {
   epBtnLabel();
   updateEventPanel();
 });
+
+// 移动端事件栏抽屉开关
+const epToggleBtn = document.getElementById('epToggle');
+const epCloseBtn = document.getElementById('epClose');
+const epPanelEl = document.getElementById('eventPanel');
+const epMapCtrlEl = document.getElementById('mapCtrl');
+function setEpOpen(open) {
+  epPanelEl.classList.toggle('open', open);
+  epMapCtrlEl.classList.toggle('ep-open', open);
+}
+epToggleBtn.addEventListener('click', () => setEpOpen(!epPanelEl.classList.contains('open')));
+epCloseBtn.addEventListener('click', () => setEpOpen(false));
 
 function resizeCanvas() {
   const rect = wrap.getBoundingClientRect();
@@ -2130,6 +2409,7 @@ function goToYear(year, fitToDecade) {
 
 function goToEvent(idx, zoomIn) {
   const e = EVENTS[idx];
+  setEpOpen(false); // 移动端点选事件后收起抽屉，露出地图与详情弹窗
   if (!state.activeCats.has(e.cat)) {
     state.activeCats.add(e.cat);
     const btn = catBox.querySelector(`[data-cat="${e.cat}"]`);
@@ -2911,6 +3191,210 @@ if (maplibregl) {
     map.flyTo({ ...DEFAULT_VIEW, duration: 800, essential: true });
   });
 }
+</script>
+
+<script>
+/* ============================================================
+ * AI 助手：对话 + 设置（API Key / 模型）
+ * - POST /api/ai/chat     问史，回答并联动地图跳转
+ * - GET  /api/ai/config   读配置（密钥脱敏）
+ * - POST /api/ai/config   保存配置（apiKey / model / clearKey）
+ * ============================================================ */
+(function () {
+  var panel = document.getElementById('aiPanel');
+  var body  = document.getElementById('aiBody');
+  var input = document.getElementById('aiInput');
+  var send  = document.getElementById('aiSend');
+  var status = document.getElementById('aiStatus');
+  var toggle = document.getElementById('aiToggle');
+  var close  = document.getElementById('aiClose');
+  var configBtn = document.getElementById('aiConfigBtn');
+  var configEl  = document.getElementById('aiConfig');
+  var providerSel = document.getElementById('aiProvider');
+  var aiBaseUrl = document.getElementById('aiBaseUrl');
+  var keyInput  = document.getElementById('aiKeyInput');
+  var aiModelInput = document.getElementById('aiModelInput');
+  var aiModelList = document.getElementById('aiModelList');
+  var saveBtn   = document.getElementById('aiSave');
+  var clearBtn  = document.getElementById('aiClearKey');
+  var configState = document.getElementById('aiConfigState');
+  if (!panel || !body || !input || !send || !toggle || !close) return;
+
+  var busy = false;
+  var hinted = false;
+
+  // 服务商预设（OpenAI 兼容网关），baseUrl / 模型均可自由修改
+  var PROVIDERS = {
+    zhipu:      { baseUrl: 'https://open.bigmodel.cn/api/paas/v4', models: ['glm-4-flash','glm-4-air','glm-4-plus','glm-4','glm-4-long','glm-4.5'] },
+    deepseek:   { baseUrl: 'https://api.deepseek.com', models: ['deepseek-chat','deepseek-reasoner'] },
+    openai:     { baseUrl: 'https://api.openai.com/v1', models: ['gpt-4o-mini','gpt-4o','gpt-4.1-mini','gpt-4.1'] },
+    qwen:       { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', models: ['qwen-plus','qwen-max','qwen-turbo','qwen-long'] },
+    moonshot:   { baseUrl: 'https://api.moonshot.cn/v1', models: ['moonshot-v1-8k','moonshot-v1-32k','moonshot-v1-128k'] },
+    siliconflow:{ baseUrl: 'https://api.siliconflow.cn/v1', models: ['deepseek-ai/DeepSeek-V3','Qwen/Qwen3-8B','Qwen/Qwen2.5-7B-Instruct'] },
+    custom:     { baseUrl: '', models: [] }
+  };
+
+  function urlKey(u) { return (u || '').trim().toLowerCase().replace(/\/+$/, ''); }
+
+  function providerByBaseUrl(url) {
+    var k = urlKey(url);
+    for (var key in PROVIDERS) {
+      if (key !== 'custom' && urlKey(PROVIDERS[key].baseUrl) === k) return key;
+    }
+    return 'custom';
+  }
+
+  function addModelOption(m) {
+    var exists = false;
+    for (var i = 0; i < aiModelList.options.length; i++) {
+      if (aiModelList.options[i].value === m) { exists = true; break; }
+    }
+    if (!exists) {
+      var o = document.createElement('option');
+      o.value = m;
+      aiModelList.appendChild(o);
+    }
+  }
+
+  function fillModelList(models) {
+    aiModelList.innerHTML = '';
+    (models || []).forEach(function (m) { addModelOption(m); });
+  }
+
+  function applyProvider(key, fillBase, fillModel) {
+    var p = PROVIDERS[key] || PROVIDERS.custom;
+    providerSel.value = key;
+    fillModelList(p.models);
+    if (fillBase !== false) aiBaseUrl.value = p.baseUrl || '';
+    if (fillModel !== false) aiModelInput.value = (p.models && p.models[0]) || '';
+  }
+
+  function setBusy(b) {
+    busy = b;
+    send.disabled = b;
+    input.disabled = b;
+    if (b) status.textContent = '思考中…';
+  }
+
+  function openPanel() { panel.classList.add('open'); toggle.classList.add('hide'); }
+  function closePanel() { panel.classList.remove('open'); toggle.classList.remove('hide'); }
+  toggle.addEventListener('click', function () {
+    if (panel.classList.contains('open')) closePanel(); else { openPanel(); setTimeout(function () { input.focus(); }, 60); }
+  });
+  close.addEventListener('click', closePanel);
+
+  function append(role, text) {
+    var m = document.createElement('div');
+    m.className = 'ai-msg ' + role;
+    m.textContent = text;
+    body.appendChild(m);
+    body.scrollTop = body.scrollHeight;
+    return m;
+  }
+
+  function addLocate(m, year, event, eventIndex) {
+    var canEvent = eventIndex != null && eventIndex >= 0 && typeof goToEvent === 'function';
+    var canYear  = year != null && typeof goToYear === 'function';
+    if (!canEvent && !canYear) return;
+    var b = document.createElement('button');
+    b.className = 'ai-locate';
+    if (canEvent) b.textContent = '定位到事件：' + (event || '');
+    else b.textContent = (year < 0 ? '跳转到公元前 ' + (-year) : '跳转到公元 ' + year) + ' 年';
+    b.addEventListener('click', function () {
+      if (canEvent) goToEvent(eventIndex, true); else goToYear(year, true);
+      closePanel();
+    });
+    m.appendChild(b);
+  }
+
+  function welcome() {
+    append('bot', '你好，我是 MAPDEX 历史助手。可以问我：「安史之乱发生在哪一年？」「唐朝灭亡的时间？」「概括 1840 年前后的大事」，我会尝试给出答案并跳转到对应年份或事件。');
+  }
+
+  function applyConfigView(d) {
+    var ok = !!d.configured;
+    toggle.classList.toggle('off', !ok);
+    status.textContent = ok ? ('已就绪 · ' + (d.model || '')) : '未配置 · 点右上角 ⚙ 设置 API Key';
+    var pkey = providerByBaseUrl(d.baseUrl);
+    applyProvider(pkey, true, false);
+    aiBaseUrl.value = d.baseUrl || '';
+    aiModelInput.value = d.model || '';
+    if (d.model) addModelOption(d.model);
+    if (d.hasKey) {
+      keyInput.placeholder = '已配置（' + (d.keyMasked || '••••') + '）· 留空则保持不变';
+      configState.textContent = '已配置';
+    } else {
+      keyInput.placeholder = '填入智谱 API Key（sk-…）';
+      configState.textContent = '未配置';
+      if (!hinted) { hinted = true; append('bot', '当前未配置智谱 API Key。点右上角 ⚙ 填入后即可提问。'); }
+    }
+    keyInput.value = '';
+  }
+
+  function loadConfig() {
+    fetch('api/ai/config').then(function (r) { return r.json(); }).then(applyConfigView)
+      .catch(function () { status.textContent = '无法读取 AI 配置'; });
+  }
+
+  function saveConfig(payload) {
+    saveBtn.disabled = true;
+    fetch('api/ai/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (res) {
+        saveBtn.disabled = false;
+        if (res.ok) applyConfigView(res.d);
+        else configState.textContent = (res.d && res.d.error) ? res.d.error : '保存失败';
+      })
+      .catch(function () { saveBtn.disabled = false; configState.textContent = '网络错误'; });
+  }
+
+  configBtn.addEventListener('click', function () {
+    var on = configEl.classList.toggle('open');
+    configBtn.classList.toggle('on', on);
+    if (on && !aiBaseUrl.value) applyProvider(providerSel.value, true, true);
+  });
+  providerSel.addEventListener('change', function () {
+    applyProvider(providerSel.value, true, true);
+  });
+  saveBtn.addEventListener('click', function () {
+    saveConfig({ apiKey: keyInput.value.trim(), model: aiModelInput.value.trim(), baseUrl: aiBaseUrl.value.trim() });
+  });
+  clearBtn.addEventListener('click', function () { saveConfig({ clearKey: true }); });
+
+  function ask() {
+    var q = input.value.trim();
+    if (!q || busy) return;
+    append('user', q);
+    input.value = '';
+    setBusy(true);
+    fetch('api/ai/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: q })
+    }).then(function (r) {
+      return r.json().then(function (d) { return { ok: r.ok, d: d }; })
+        .catch(function () { return { ok: false, d: { error: '服务异常（HTTP ' + r.status + '）' } }; });
+    }).then(function (res) {
+      setBusy(false);
+      if (!res.ok) { append('error', res.d && res.d.error ? res.d.error : 'AI 调用失败'); return; }
+      var d = res.d;
+      var m = append('bot', d.answer || '(空回答)');
+      if (d.eventIndex != null || d.year != null) addLocate(m, d.year, d.event, d.eventIndex);
+    }).catch(function (err) {
+      setBusy(false);
+      append('error', '网络错误：' + err.message);
+    });
+  }
+
+  send.addEventListener('click', ask);
+  input.addEventListener('keydown', function (e) { if (e.key === 'Enter') ask(); });
+
+  welcome();
+  loadConfig();
+})();
 </script>
 </body>
 </html>

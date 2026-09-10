@@ -25,6 +25,9 @@ public class DataStore {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Manifest(String credit, List<EraEntry> eras) {}
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Event(int year, String name, String cat, int importance, String desc, String place) {}
+
     public record Cached(byte[] body, long mtime, long size) {
         public String etag() {
             return "\"" + Long.toHexString(size) + "-" + Long.toHexString(mtime) + "\"";
@@ -38,6 +41,8 @@ public class DataStore {
 
     private volatile Manifest manifest;
     private volatile long manifestMtime = -1;
+    private volatile List<Event> eventList;
+    private volatile long eventsMtime = -1;
 
     public DataStore(@Value("${mapdex.data-dir}") Path dataDir,
                      @Value("${mapdex.events-file}") Path eventsFile) {
@@ -81,6 +86,26 @@ public class DataStore {
 
     public Cached events() {
         return read(eventsFile, "@events");
+    }
+
+    /** 结构化解析事件库（供 AI 工具检索，热更新缓存） */
+    public List<Event> eventsParsed() {
+        try {
+            long mt = Files.getLastModifiedTime(eventsFile).toMillis();
+            List<Event> cur = eventList;
+            if (cur != null && mt == eventsMtime) return cur;
+            synchronized (this) {
+                long mt2 = Files.getLastModifiedTime(eventsFile).toMillis();
+                if (eventList == null || mt2 != eventsMtime) {
+                    eventList = mapper.readValue(eventsFile.toFile(),
+                            mapper.getTypeFactory().constructCollectionType(List.class, Event.class));
+                    eventsMtime = mt2;
+                }
+                return eventList;
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException("解析事件库失败: " + eventsFile, e);
+        }
     }
 
     public Cached cities() {

@@ -9,6 +9,9 @@ server/*.log
 server/*.err.log
 server/*.pid
 
+# ---- AI 配置（含 API Key，切勿提交）----
+ai-config.json
+
 # ---- 大文件：Cliopatria 原始数据（约 165MB，超出 GitHub 单文件 100MB 限制） ----
 # 需要重建切片时，从 https://github.com/Seshat-Global-History-Databank/cliopatria 下载
 tools/cliopatria/cliopatria_polities_only.geojson
