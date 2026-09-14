@@ -112,6 +112,14 @@ public class DataStore {
         return read(dataDir.resolve("cities.json"), "cities.json");
     }
 
+    /** 读取本地底图 GeoJSON（data/basemap/ 下），供 MapLibre 离线底图使用 */
+    public Cached basemap(String name) {
+        if (name == null || name.contains("..") || name.contains("/") || name.contains("\\")) {
+            throw new IllegalArgumentException("非法底图名称: " + name);
+        }
+        return read(dataDir.resolve("basemap").resolve(name), "basemap/" + name);
+    }
+
     /** 按年份解析时代切片：取不晚于该年份的最近切片 */
     public EraEntry resolveEra(int year) {
         Manifest m = manifest();

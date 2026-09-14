@@ -11,16 +11,17 @@
 - **政权筛选**：按类别（帝国 / 王国 / 汗国 / 共和国等）与区域过滤显示
 - **数据可溯源**：每个政权均携带起止年份、首都、类别、来源等属性字段
 - **移动端适配**：小屏下事件栏收为底部抽屉（☰ 展开 / ✕ 收起），地图、时间轴与焦点定位功能完整保留
+- **离线本地底图**：MapLibre 引擎与 Natural Earth 海陆/海岸线/国界数据全部本地自托管，不依赖任何在线 CDN，断网也能完整渲染
 - **AI 助手（可选）**：地图控制组「AI」按钮唤起对话面板，用自然语言问史（如「安史之乱在哪一年」「唐朝灭亡的时间」），大模型作答并可一键跳转到对应年份或事件
 
 ## 技术栈
 
 | 层 | 技术 |
 |----|------|
-| 前端 | 原生 HTML + JavaScript + MapLibre GL JS（单文件应用） |
+| 前端 | 原生 HTML + JavaScript + MapLibre GL JS（本地自托管 vendored，单文件应用） |
 | 后端 | Java 21 + Spring Boot 3.5（REST API + 静态资源托管） |
 | AI | Java LangChain4j 1.15（OpenAI 兼容协议）→ 智谱 GLM（可选） |
-| 数据 | 56 个版图切片（GeoJSON，已几何简化）+ 事件库（JSON），派生自 Cliopatria / Seshat |
+| 数据 | 56 个版图切片（GeoJSON，已几何简化）+ 事件库（JSON）+ Natural Earth 110m 底图，派生自 Cliopatria / Seshat |
 
 ## 快速开始
 
@@ -89,6 +90,7 @@ mapdex/
 │   └── build.bat            # Windows 构建脚本
 ├── data/                    # 运行时数据
 │   ├── eras/                # 56 个版图切片（world_*.geojson）+ 中文名对照表
+│   ├── basemap/             # 本地底图（Natural Earth 110m：陆地/海岸线/国界）
 │   └── cities.json          # 城市数据
 ├── events.json              # 历史事件库（224 条，公元前 221 年 ~ 公元 1918 年）
 ├── tools/                   # 数据处理脚本（切片构建 / 中文名注入 / 数据校验）
@@ -103,6 +105,7 @@ mapdex/
 - 原始数据 `cliopatria_polities_only.geojson`（约 165 MB）因超出 GitHub 单文件限制未随仓库分发；需要重新构建切片时，请从 [Cliopatria 仓库](https://github.com/Seshat-Global-History-Databank/cliopatria) 或 [Zenodo](https://zenodo.org/records/13363121) 下载后放入 `tools/cliopatria/` 目录
 - 历史事件为人工整理编写
 - 运行时版图切片用 **mapshaper** 做过几何简化，采用保守档位 `-simplify 75% keep-shapes`（保留约 75% 顶点与全部属性字段），在保证政权边界清晰的前提下去除微小冗余，全量 56 片合计约 **7.95 MB**（原始 9.73 MB）。如需调节精化/体积平衡，可运行 `tools/simplify-eras.ps1 -Percent <N>`（如 `-Percent 90` 更精细）。早期曾有更激进的 10% 档导致边界过于粗略，已弃用
+- 本地底图采用 **Natural Earth** 110m 分辨率矢量数据（陆地 / 海岸线 / 国界），置于 `data/basemap/`，公有领域（Public Domain）许可；MapLibre GL JS 引擎本地自托管于 `server/src/main/resources/static/vendor/`
 - 本仓库代码采用 MIT 许可；派生数据遵循上游 CC BY 4.0
 
 ## 致谢
