@@ -56,6 +56,12 @@ public class ApiController {
         return serve(store.manifestRaw(), inm);
     }
 
+    @GetMapping(value = "/api/basemap/{name:.+}", produces = "application/json;charset=UTF-8")
+    public ResponseEntity<byte[]> basemap(@PathVariable String name,
+                                          @RequestHeader(value = "If-None-Match", required = false) String inm) {
+        return serve(store.basemap(name), inm);
+    }
+
     @GetMapping(value = "/api/eras/{year}", produces = "application/geo+json;charset=UTF-8")
     public ResponseEntity<byte[]> eraSlice(@PathVariable int year,
                                            @RequestHeader(value = "If-None-Match", required = false) String inm) {

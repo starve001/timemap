@@ -6,7 +6,7 @@
 <title>MAPDEX · 时序地图 — 时间驱动的世界历史</title>
 <meta name="description" content="MAPDEX 时序地图：以时间为轴浏览世界历史事件，公元前221年（秦统一）~ 公元1918年（一战结束），地图与时间轴双向联动。" />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗺️</text></svg>" />
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@6/dist/maplibre-gl.css" />
+<link rel="stylesheet" href="vendor/maplibre-gl.css" />
 <style>
 /* =========================
    全局 & 基础样式（深色学术主题）
@@ -943,7 +943,7 @@ html, body {
       <span>
         <button class="layer-btn" id="focusToggle" title="只显示当前年份±50年的事件">◎ 聚焦当前</button>
         <button class="layer-btn" id="erasToggle" title="叠加当前年代的政权版图（数据随时间轴自动切换）">🏛 政权版图</button>
-        <span class="tl-attr">底图 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors · © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a> · 版图 <a href="https://github.com/Seshat-Global-History-Databank/cliopatria" target="_blank" rel="noopener">Cliopatria</a>/Seshat (CC BY 4.0) · 引擎 MapLibre GL</span>
+        <span class="tl-attr">底图 © <a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a>（本地自托管） · 版图 <a href="https://github.com/Seshat-Global-History-Databank/cliopatria" target="_blank" rel="noopener">Cliopatria</a>/Seshat (CC BY 4.0) · 引擎 MapLibre GL</span>
       </span>
     </div>
     <div class="tl-body">
@@ -2529,8 +2529,8 @@ window.__dataReady.then(ok => {
 const mapError = document.getElementById('mapError');
 let maplibregl;
 try {
-  // 锁定大版本 @6（v6 起 CDN 仅提供 ESM 构建）
-  maplibregl = await import('https://cdn.jsdelivr.net/npm/maplibre-gl@6/dist/maplibre-gl.mjs');
+  // 本地化 MapLibre（v6 ESM），不依赖 CDN
+  maplibregl = await import('./vendor/maplibre-gl.mjs');
 } catch (err) {
   mapError.classList.add('show');
   console.error('MapLibre 加载失败', err);
@@ -2539,14 +2539,21 @@ try {
 if (maplibregl) {
   const DEFAULT_VIEW = { center: [45, 33], zoom: 1.15 };
 
-  /* 底图自动降级：当前 CDN 加载失败时按顺序切换下一个可用来源 */
-  const BASEMAP_STYLES = [
-    'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
-    'https://tiles.openfreemap.org/styles/positron',
-    'https://tiles.openfreemap.org/styles/liberty',
-    'https://demotiles.maplibre.org/style.json',
-  ];
-  let basemapIdx = 0;
+  /* 本地底图：Natural Earth 110m 矢量数据自托管（data/basemap），不依赖任何在线 CDN */
+  const BASEMAP_STYLES = [{
+    version: 8,
+    sources: {
+      land:   { type: 'geojson', data: 'api/basemap/land.geojson' },
+      coast:  { type: 'geojson', data: 'api/basemap/coastline.geojson' },
+      bounds: { type: 'geojson', data: 'api/basemap/boundaries.geojson' },
+    },
+    layers: [
+      { id: 'bg', type: 'background', paint: { 'background-color': '#0e1626' } },
+      { id: 'land', type: 'fill', source: 'land', paint: { 'fill-color': '#1b2436' } },
+      { id: 'coastline', type: 'line', source: 'coast', paint: { 'line-color': '#3d4f6e', 'line-width': 0.6 } },
+      { id: 'boundary', type: 'line', source: 'bounds', paint: { 'line-color': '#33415c', 'line-width': 0.4 } },
+    ],
+  }];
   let overlayBound = false; // 地图事件处理器只绑定一次
 
   // 从 hash 恢复地图视图（map=zoom/lon/lat）
@@ -2820,16 +2827,7 @@ if (maplibregl) {
     const msg = String(e && e.error && e.error.message || e).slice(0, 300);
     window.__mapErrors.push(msg);
     console.error('地图错误', e && e.error);
-    // 底图 CDN 加载失败（Failed to fetch 等）→ 自动切换到下一个可用底图源
-    if (basemapIdx < BASEMAP_STYLES.length - 1 &&
-        (msg.toLowerCase().includes('fetch') || msg.toLowerCase().includes('network') ||
-         msg.toLowerCase().includes('load') || msg.toLowerCase().includes('failed'))) {
-      basemapIdx++;
-      console.warn('底图加载失败，切换到备用底图 ' + (basemapIdx + 1) + '/' + BASEMAP_STYLES.length);
-      mapReady = false;        // 允许 setupLayers 重建叠加图层
-      try { map.setStyle(BASEMAP_STYLES[basemapIdx]); } catch (_) {}
-      mapError.classList.remove('show');
-    }
+    // 本地底图为单源自托管、无需切换；错误仅记录，最终的看门狗会兜底提示
   });
   // 看门狗：10 秒内既无 load 也无任何源数据事件 = 渲染管线卡死
   // → 静默刷新一次（sessionStorage 防循环）；再失败则降级极简底图并提示
