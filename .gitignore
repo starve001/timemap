@@ -4,6 +4,9 @@ server/target/
 # ---- 数据处理输出（简化后的切片副本） ----
 data/eras_simp/
 
+# ---- GitHub Pages 静态站点构建输出 ----
+site/
+
 # ---- 备份 ----
 _backup_*/
 

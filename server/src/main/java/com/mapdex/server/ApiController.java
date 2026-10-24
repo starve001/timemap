@@ -51,7 +51,9 @@ public class ApiController {
         return serve(store.cities(), inm);
     }
 
-    @GetMapping(value = "/api/eras", produces = "application/json;charset=UTF-8")
+    // 清单同时兼容 /api/eras 与 /api/eras/index.json：后者是 GitHub Pages
+    // 静态镜像的路径（api/eras 需留作切片目录，文件系统不能同名共存）
+    @GetMapping(value = {"/api/eras", "/api/eras/index.json"}, produces = "application/json;charset=UTF-8")
     public ResponseEntity<byte[]> eras(@RequestHeader(value = "If-None-Match", required = false) String inm) {
         return serve(store.manifestRaw(), inm);
     }

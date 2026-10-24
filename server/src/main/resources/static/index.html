@@ -3087,7 +3087,9 @@ if (maplibregl) {
     }
     if (!erasManifest) {
       try {
-        erasManifest = await (await fetch('api/eras')).json();
+        // 清单走 /api/eras/index.json：GitHub Pages 静态镜像里 api/eras 是切片目录，
+        // 文件系统同名文件与目录不能共存（后端两种路径都兼容）
+        erasManifest = await (await fetch('api/eras/index.json')).json();
       } catch (e) {
         console.error('版图清单加载失败', e);
         btn.disabled = true;
@@ -3273,6 +3275,15 @@ if (maplibregl) {
   function applyConfigView(d) {
     var ok = !!d.configured;
     toggle.classList.toggle('off', !ok);
+    if (d.staticDeploy) {
+      // GitHub Pages 静态预览版没有后端，AI 接口不可用
+      status.textContent = '静态预览版 · AI 助手需本地运行';
+      input.disabled = true;
+      send.disabled = true;
+      return;
+    }
+    input.disabled = false;
+    send.disabled = false;
     status.textContent = ok ? ('已就绪 · ' + (d.model || '')) : '未配置 · 点右上角 ⚙ 设置 API Key';
     var pkey = providerByBaseUrl(d.baseUrl);
     applyProvider(pkey, true, false);

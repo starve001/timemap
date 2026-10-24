@@ -1,0 +1,44 @@
+name: Deploy Pages
+
+# 把 MAPDEX 以静态站点形式发布到 GitHub Pages：
+# tools/build-pages.js 将后端 REST API 镜像为纯文件，前端零改动即可在线预览。
+# 注意：首次使用需在仓库 Settings → Pages → Build and deployment 里
+# 把 Source 设为「GitHub Actions」（此开关只能仓库管理员手动切换）。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 组装静态站点（镜像 REST API）
+        run: node tools/build-pages.js
+      - name: Pages 元数据
+        uses: actions/configure-pages@v5
+      - name: 上传部署产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        name: 发布到 GitHub Pages
+        uses: actions/deploy-pages@v4

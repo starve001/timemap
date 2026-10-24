@@ -69,7 +69,8 @@ class SmokeTest {
 
     @Test
     void manifestMatchesSlices() throws Exception {
-        ResponseEntity<String> r = http.getForEntity("/api/eras", String.class);
+        // 用前端实际请求的路径（Pages 静态镜像同款）
+        ResponseEntity<String> r = http.getForEntity("/api/eras/index.json", String.class);
         assertEquals(HttpStatus.OK, r.getStatusCode());
         JsonNode eras = mapper.readTree(r.getBody()).path("eras");
         assertTrue(eras.isArray() && !eras.isEmpty(), "清单应有切片条目");
