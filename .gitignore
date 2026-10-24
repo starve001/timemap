@@ -1,6 +1,9 @@
 # ---- 构建产物 ----
 server/target/
 
+# ---- 数据处理输出（简化后的切片副本） ----
+data/eras_simp/
+
 # ---- 备份 ----
 _backup_*/
 
@@ -20,6 +23,7 @@ tools/cliopatria/cliopatria_polities_only.geojson
 .idea/
 *.iml
 .vscode/
+.zcode/
 
 # ---- 操作系统 ----
 .DS_Store

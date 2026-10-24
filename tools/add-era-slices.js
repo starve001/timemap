@@ -1,14 +1,21 @@
 // 按年份列表生成缺失的版图切片并插入 index.json，规则与 rebuild-eras-cliopatria.js 一致
 // 用法：node tools/add-era-slices.js 或 node tools/add-era-slices.js 260 570 930
+// 仅允许 [-221, 1914]：与前端时间轴范围（MIN_YEAR/MAX_YEAR）和交付切片保持一致
 const fs = require('fs');
 const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const ERAS_DIR = path.join(ROOT, 'data', 'eras');
 const CLIO = path.join(__dirname, 'cliopatria', 'cliopatria_polities_only.geojson');
 const SOURCE = 'Cliopatria / Seshat Global History Databank (CC BY 4.0)';
+const MIN_Y = -221, MAX_Y = 1914;
 const YEARS = (process.argv.slice(2).map(Number).filter(Number.isFinite).length
   ? process.argv.slice(2).map(Number).filter(Number.isFinite)
-  : [-1200, 260, 330, 460, 570, 930]).sort((a, b) => a - b);
+  : [260, 330, 460, 570, 930])
+  .filter(y => {
+    if (y < MIN_Y || y > MAX_Y) { console.warn(`跳过 ${y}：超出时间轴范围 [${MIN_Y}, ${MAX_Y}]`); return false; }
+    return true;
+  })
+  .sort((a, b) => a - b);
 const fileFor = y => y < 0 ? `world_bc${-y}.geojson` : `world_${y}.geojson`;
 const labelFor = y => (y < 0 ? '前' + (-y) : '公元' + y) + '年';
 

@@ -1,9 +1,11 @@
 /* ============================================================
- * tools/prepare-eras.js — 下载 aourednik/historical-basemaps 的
- * 分时代政权版图 GeoJSON，简化（去冗余字段/坐标降精度/去重复点）
- * 后输出到 data/eras/，并生成 index.json 清单
- * 数据源：https://github.com/aourednik/historical-basemaps (GPL-3.0)
- * 用法：node tools/prepare-eras.js
+ * tools/prepare-eras.js —— 【已弃用，仅存档】
+ * 交付数据已由 rebuild-eras-cliopatria.js 全量重建为纯 Cliopatria
+ * （Seshat, CC BY 4.0）来源；本脚本是早期基于
+ * aourednik/historical-basemaps（GPL-3.0）的管线，请勿再用它重建
+ * 交付切片，以免混淆数据来源与许可。
+ * 原流程：下载 historical-basemaps 分时代 GeoJSON → 去冗余字段/
+ * 坐标降精度/去重复点 → 输出 data/eras/ 并生成 index.json
  * ============================================================ */
 const fs = require('fs');
 const path = require('path');

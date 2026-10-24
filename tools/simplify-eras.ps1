@@ -3,8 +3,8 @@
 # 用法示例：
 #   .\simplify-eras.ps1 -InputDir .\data\eras -OutputDir .\data\eras_simp -Percent 75
 param(
-    [string]$InputDir  = "c:\Users\lwr\Desktop\timemap\data\eras",
-    [string]$OutputDir = "c:\Users\lwr\Desktop\timemap\data\eras_simp",
+    [string]$InputDir  = (Join-Path $PSScriptRoot "..\data\eras"),
+    [string]$OutputDir = (Join-Path $PSScriptRoot "..\data\eras_simp"),
     [int]$Percent = 75
 )
 

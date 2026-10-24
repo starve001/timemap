@@ -1,8 +1,8 @@
-// 将全部 49 个时代切片整体重建为纯 Cliopatria（Seshat Global History Databank, CC BY 4.0）数据。
+// 将全部时代切片整体重建为纯 Cliopatria（Seshat Global History Databank, CC BY 4.0）数据。
 // 规则：
 //  - 每个年份取 Type=POLITY 且 FromYear<=Y<=ToYear 的记录；
 //  - 跳过伞记录（Components 非空）与括号别名记录（Name 以 "(" 开头），其几何与成员政权重复；
-//  - 不改写任何坐标，仅做与 prepare-eras.js 一致的降精度/去重复点简化；
+//  - 不改写任何坐标，仅做降精度/去重复点简化；
 //  - 从被覆盖的旧切片按 NAME 继承已考据的 capital/type/region 元数据；
 //  - 中文名与 _a/_c 由 tools/add-nz.js 统一注入。
 // 旧切片已备份至 data/eras-backup/。用法：node tools/rebuild-eras-cliopatria.js
@@ -14,10 +14,12 @@ const ERAS_DIR = path.join(ROOT, 'data', 'eras');
 const CLIO = path.join(__dirname, 'cliopatria', 'cliopatria_polities_only.geojson');
 const SOURCE = 'Cliopatria / Seshat Global History Databank (CC BY 4.0)';
 
-const ERAS = [-3000, -2000, -1500, -1000, -700, -500, -400, -323, -300, -200, -100, -1,
-  100, 200, 300, 376, 400, 500, 600, 700, 800, 900, 950, 1000, 1100, 1200, 1279, 1300, 1400, 1492,
-  1500, 1530, 1600, 1650, 1700, 1715, 1783, 1800, 1815, 1880, 1900, 1914, 1920, 1930,
-  1938, 1945, 1960, 1994, 2000];
+// 年份序列与交付切片一致：前端时间轴范围 [MIN_YEAR, MAX_YEAR] = [-221, 1918]，
+// 选片规则是「不晚于当前年份的最近切片」，范围外切片永远不会被加载，故不生成
+const ERAS = [-221, -200, -100, -1,
+  100, 200, 260, 300, 330, 376, 400, 460, 500, 570, 600, 700, 800, 900, 930, 950,
+  1000, 1100, 1200, 1279, 1300, 1400, 1492, 1500, 1530, 1600, 1650, 1700, 1715,
+  1783, 1800, 1815, 1880, 1900, 1914];
 const fileFor = y => y < 0 ? `world_bc${-y}.geojson` : `world_${y}.geojson`;
 
 function hashName(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; }
