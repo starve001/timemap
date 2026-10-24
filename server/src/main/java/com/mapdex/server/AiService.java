@@ -97,6 +97,8 @@ public class AiService {
                 .baseUrl(baseUrl)
                 .modelName(model)
                 .temperature(temperature)
+                .timeout(java.time.Duration.ofSeconds(30))
+                .maxRetries(1)
                 .build();
     }
 
