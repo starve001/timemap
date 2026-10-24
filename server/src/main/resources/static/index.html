@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>MAPDEX · 时序地图 — 时间驱动的世界历史</title>
 <meta name="description" content="MAPDEX 时序地图：以时间为轴浏览世界历史事件，公元前221年（秦统一）~ 公元1918年（一战结束），地图与时间轴双向联动。" />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗺️</text></svg>" />
@@ -2301,15 +2301,16 @@ function openModal(idx) {
   document.getElementById('mName').textContent = e.name;
   document.getElementById('mBody').textContent = e.desc;
 
-  // 事件地点 + 定位按钮
+  // 事件地点 + 定位按钮（地名走 textContent，防数据中混入标记字符）
   const placeEl = document.getElementById('mPlace');
   if (e.place && typeof e.lng === 'number') {
     placeEl.style.display = 'flex';
     placeEl.innerHTML =
       `<span>📍</span>
-       <span class="place-name">${e.place}</span>
+       <span class="place-name"></span>
        <span class="place-geo">${e.lng.toFixed(2)}°E, ${e.lat.toFixed(2)}°N</span>
        <button class="locate-btn" id="mLocate">在地图中定位</button>`;
+    placeEl.querySelector('.place-name').textContent = e.place;
     document.getElementById('mLocate').addEventListener('click', () => {
       closeModal();
       state.selectedIdxs = new Set([idx]);
@@ -2351,7 +2352,12 @@ function openModal(idx) {
     nearby.forEach(x => {
       const row = document.createElement('div');
       row.className = 'related-item';
-      row.innerHTML = `<span>${x.ev.name}</span><span class="r-year">${yearToStrShort(x.ev.year)}</span>`;
+      const nm = document.createElement('span');
+      nm.textContent = x.ev.name;
+      const yr = document.createElement('span');
+      yr.className = 'r-year';
+      yr.textContent = yearToStrShort(x.ev.year);
+      row.append(nm, yr);
       row.addEventListener('click', () => {
         closeModal();
         setTimeout(() => { goToEvent(x.i, true); }, 220);
@@ -2477,11 +2483,17 @@ function updateSuggest() {
   items.forEach(it => {
     const row = document.createElement('div');
     row.className = 'sg-item';
+    const label = document.createElement('span');
+    label.textContent = it.label;
+    const tag = document.createElement('span');
+    tag.className = 'sg-year';
     if (it.type === 'year') {
-      row.innerHTML = `<span>${it.label}</span><span class="sg-year">年 份</span>`;
+      tag.textContent = '年 份';
+      row.append(label, tag);
       if (it.year !== null) row.addEventListener('mousedown', (e) => { e.preventDefault(); goToYear(it.year, true); searchEl.value = ''; suggestEl.classList.remove('active'); });
     } else {
-      row.innerHTML = `<span>${it.label}</span><span class="sg-year">${it.sub}</span>`;
+      tag.textContent = it.sub;
+      row.append(label, tag);
       row.addEventListener('mousedown', (e) => {
         e.preventDefault();
         goToEvent(it.idx, true);
@@ -2574,40 +2586,8 @@ if (maplibregl) {
   map.touchZoomRotate.disableRotation();
   window.__map = map; // 调试句柄
 
-  /* ---------- 事件数据 → GeoJSON ---------- */
-  const features = EVENTS.map((e, i) => ({
-    type: 'Feature',
-    geometry: { type: 'Point', coordinates: [e.lng, e.lat] },
-    properties: {
-      idx: i, year: e.year, name: e.name, cat: e.cat,
-      importance: e.importance, place: e.place || '',
-    },
-  }))
-  // 重要度升序排列 → 重要事件最后绘制（显示在最上层）
-  .sort((a, b) => a.properties.importance - b.properties.importance);
-  const eventsGJ = { type: 'FeatureCollection', features };
-
-  const catColor = ['match', ['get', 'cat'],
-    'politics', '#c9a24b',
-    'military', '#c06b5e',
-    'culture',  '#8a7bb8',
-    'tech',     '#5fa3b5',
-    'economy',  '#7aa66a',
-    '#8a93a8'];
-
-  const dotRadius = ['interpolate', ['linear'], ['zoom'],
-    1, ['match', ['get', 'importance'], 3, 6.5, 2, 5, 3.5],
-    5, ['match', ['get', 'importance'], 3, 11, 2, 8.5, 6]];
-
-    /* 事件点时间窗：只显示当前时间轴视口对应的时间段；播放游标附近额外高亮 */
-  let _cy = Math.round(currentYear());
-  let _cyL = MIN_YEAR, _cyR = MAX_YEAR;
+  // 事件不再以圆点渲染在地图上（改由右侧事件栏承载），分类筛选由事件栏消费
   let focusOn = false;
-  function eventFilter() {
-    const f = ['in', ['get', 'cat'], ['literal', [...state.activeCats]]];
-    if (!focusOn) return f;
-    return ['all', f, ['<=', ['abs', ['-', ['get', 'year'], _cy]], 50]];
-  }
   // 大政权固定配色：避免随机哈希让相邻政权撞色（宋金西夏这类邻居必须区分明显）
   const ERA_PALETTE = ['#8c6d3f', '#3f8c7a', '#7a3f8c', '#8c3f5f', '#5f8c3f', '#3f6d8c', '#8c563f', '#3f8c56', '#8a7bb8', '#8c3f8c', '#6d8c3f', '#c06b5e', '#5fa3b5', '#7aa66a', '#b0859b', '#5fa387', '#a3785f', '#6b7fa3', '#96854a', '#7a5fa3'];
   const ERA_COLORS = ['#8c6d3f', '#6d8c3f', '#3f8c7a', '#3f6d8c', '#7a3f8c', '#8c3f5f',
@@ -2693,20 +2673,6 @@ if (maplibregl) {
     if (n !== raw && ZH_POLITIES[n]) return ZH_POLITIES[n];
     return '';
   }
-  function winOpacityExpr(maxAt) {
-    const fade = 80; // 从窗口起点淡入 80 年
-    return ['case',
-      ['>', ['get', 'year'], _cyR], 0,
-      ['<', ['get', 'year'], _cyL], 0,
-      ['interpolate', ['linear'], ['get', 'year'],
-        _cyL, 0, _cyL + fade, maxAt,
-        _cyR, maxAt]];
-  }
-  function spotlightExpr(maxAt) {
-    return ['interpolate', ['linear'],
-      ['abs', ['-', ['get', 'year'], _cy]],
-      0, maxAt, 60, maxAt, 160, 0];
-  }
 
   let mapReady = false;
   window.__mapErrors = [];
@@ -2768,6 +2734,7 @@ if (maplibregl) {
     map.addImage('sym-2', makeSymImage('◎', '#b9c2d4', 15), { pixelRatio: 2 });
     map.addImage('sym-1', makeSymImage('●', '#8a93a8', 11), { pixelRatio: 2 });
     map.addSource('cities', { type: 'geojson', data: EMPTY_FC });
+    citiesYear = null; // 底图降级重建源后允许重新填充
     map.addLayer({
       id: 'cities-sym', type: 'symbol', source: 'cities',
       layout: {
@@ -2856,15 +2823,10 @@ if (maplibregl) {
   }, 10000);
 
   /* ---------- 挂载双向联动钩子 ---------- */
-  mapHooks.sync = (force) => {
+  mapHooks.sync = () => {
     if (!mapReady) return;
-    const cy = Math.round(currentYear());
-    if (force || cy !== _cy) {
-      _cy = cy;
-    }
     updateEra(); updateCities();
   };
-
 
   mapHooks.applyCats = () => {
     // 事件不再渲染在地图上；分类筛选由右侧事件栏消费（经典脚本 recomputeFiltered）
@@ -2904,14 +2866,6 @@ if (maplibregl) {
   const mtName = mapTip.querySelector('.mt-name');
   const mtPlace = mapTip.querySelector('.mt-place');
 
-  function showMapTip(point, p) {
-    mtYear.textContent = (p.year < 0 ? `公元前 ${-p.year} 年` : `公元 ${p.year} 年`) + ' · ' + (p.importance === 3 ? '★★★' : p.importance === 2 ? '★★' : '★');
-    mtName.textContent = p.name;
-    mtPlace.textContent = p.place ? '📍 ' + p.place : '';
-    mapTip.style.left = point.x + 'px';
-    mapTip.style.top = point.y + 'px';
-    mapTip.classList.add('show');
-  }
   function hideMapTip() { mapTip.classList.remove('show'); }
   const lastEraMouse = { x: 0, y: 0 };
   map.on('mousemove', (e) => { lastEraMouse.x = e.point.x; lastEraMouse.y = e.point.y; });
@@ -2933,7 +2887,8 @@ if (maplibregl) {
    * ============================================================ */
   let erasOn = true, erasManifest = null, erasLoadedYear = null, erasLoading = null, hoverEraId = null;
   const eraCache = new Map();
-  const ERA_CACHE_MAX = 8;
+  // 全部 39 个切片解析后也就 20MB 量级：缓存到 24 个即可覆盖一次完整播放，二次播放零请求
+  const ERA_CACHE_MAX = 24;
   function eraCachePut(key, val) {
     if (eraCache.has(key)) eraCache.delete(key);
     eraCache.set(key, val);
@@ -2960,7 +2915,8 @@ if (maplibregl) {
       const n = list[i + off];
       if (n && !eraCache.has(n.y)) {
         const p = fetch('api/eras/' + n.y)
-          .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+          .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+          .catch(() => { eraCache.delete(n.y); }); // 预取失败：清缓存避免未处理的 Promise 拒绝
         eraCachePut(n.y, p);
       }
     }
@@ -3161,9 +3117,12 @@ if (maplibregl) {
 
   /* ---------- 历史名城按年代筛选 ---------- */
   let citiesSig = '';
+  let citiesYear = null; // sync 每帧都会调用本函数：年份没变就直接跳过
   function updateCities() {
     if (!mapReady || !map.getSource('cities')) return;
     const cy = currentYear();
+    if (cy === citiesYear) return;
+    citiesYear = cy;
     const feats = [];
     let sig = '';
     for (const c of CITIES) {
