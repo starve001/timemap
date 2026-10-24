@@ -1,0 +1,4 @@
+# mvnw 是 POSIX shell 脚本：任何平台都保持 LF，避免 CRLF 导致无法执行
+server/mvnw text eol=lf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
