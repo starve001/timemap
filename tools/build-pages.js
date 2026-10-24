@@ -30,6 +30,8 @@ fs.copyFileSync(
 
 // REST API → 静态文件
 fs.copyFileSync(path.join(ROOT, 'events.json'), path.join(API, 'events'));
+// 根路径数据副本：外部门户跨站 fetch 时取 /timemap/events.json 更直观
+fs.copyFileSync(path.join(ROOT, 'events.json'), path.join(SITE, 'events.json'));
 fs.copyFileSync(path.join(ROOT, 'data/cities.json'), path.join(API, 'cities'));
 fs.copyFileSync(
   path.join(ROOT, 'data/eras/index.json'),

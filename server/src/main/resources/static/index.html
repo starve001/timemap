@@ -2802,6 +2802,31 @@ if (maplibregl) {
   map.touchZoomRotate.disableRotation();
   window.__map = map; // 调试句柄
 
+  /* ---------- 门户驱动接口（postMessage）----------
+     供外部门户页跨 iframe 驱动舆图：
+     { source:'mapdex-portal', type:'goto', year, lng?, lat?, zoom? } → 年份跳转 + 飞行定位
+     { source:'mapdex-portal', type:'ai' }                            → 展开 AI 助手面板 */
+  window.addEventListener('message', (e) => {
+    const d = e.data;
+    if (!d || d.source !== 'mapdex-portal') return;
+    if (d.type === 'goto' && typeof d.year === 'number') {
+      goToYear(d.year, true);
+      if (typeof d.lng === 'number' && typeof d.lat === 'number' && mapReady) {
+        map.flyTo({
+          center: [d.lng, d.lat],
+          zoom: Math.max(map.getZoom(), d.zoom ?? 3.2),
+          duration: 1200,
+          essential: true,
+        });
+      }
+    }
+    if (d.type === 'ai') {
+      const fab = document.getElementById('aiToggle');
+      const panel = document.getElementById('aiPanel');
+      if (fab && panel && !panel.classList.contains('open')) fab.click();
+    }
+  });
+
   // 事件不再以圆点渲染在地图上（改由右侧事件栏承载），分类筛选由事件栏消费
   let focusOn = false;
   // 大政权固定配色：避免随机哈希让相邻政权撞色（宋金西夏这类邻居必须区分明显）
