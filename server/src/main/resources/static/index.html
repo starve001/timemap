@@ -143,6 +143,7 @@ button { font-family: inherit; }
 .sg-item:last-child { border-bottom: none; }
 .sg-item:hover, .sg-item.active { background: rgba(201,162,75,.10); color: #f2d99a; }
 .sg-item .sg-year { font-family: "SF Mono", Consolas, monospace; color: #8a93a8; font-size: 12px; }
+.sg-item mark { background: rgba(201,162,75,.28); color: var(--gold-hi); border-radius: 2px; padding: 0 1px; }
 
 /* 分类筛选按钮 */
 .categories { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -1198,6 +1199,7 @@ const state = {
   vx: 0, lastMoveT: 0, lastX: 0,
   anim: { active: false, sFrom: 0, sTo: 0, pFrom: 0, pTo: 0, tStart: 0, tDur: 0 },
   hoverIdx: -1,
+  hoverX: null,
   selectedIdxs: new Set(),
   highlightYear: null, highlightUntil: 0,
   ripples: [],
@@ -1358,6 +1360,9 @@ function updateEventPanel() {
     row.addEventListener('click', () => goToEvent(idx, true));
     epListEl.appendChild(row);
   }
+  // 选中项滚入视野（列表重建时）
+  const selRow = epListEl.querySelector('.ep-item.sel');
+  if (selRow) selRow.scrollIntoView({ block: 'nearest' });
 }
 
 function epBtnLabel() {
@@ -1455,6 +1460,7 @@ function render() {
   drawAxis(axisY, W, H);
   drawEvents(axisY, W, H);
   drawCenterHighlight(axisY, W, H);
+  drawHoverYear(axisY, W, H);
   drawRipples(W, H);
 
   ctx.restore();
@@ -1707,6 +1713,28 @@ function drawCenterHighlight(axisY, W, H) {
   ctx.restore();
 }
 
+/* 悬停年份幽灵线：细刻线 + 顶部小年份，放大后瞄准用 */
+function drawHoverYear(axisY, W, H) {
+  if (state.hoverX == null || state.dragging || state.anim.active || state.playing) return;
+  const hy = Math.round(pxToYear(screenXToPx(state.hoverX)));
+  const x = state.hoverX;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,.14)';
+  ctx.setLineDash([2, 4]);
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x, 34);
+  ctx.lineTo(x, H - 24);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.font = '500 10px "SF Mono", Consolas, monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = 'rgba(200,208,228,.62)';
+  ctx.fillText(hy < 0 ? '前 ' + (-hy) : String(hy), clamp(x, 18, W - 18), 20);
+  ctx.restore();
+}
+
 function drawRipples(W, H) {
   const now = performance.now();
   for (let i = state.ripples.length - 1; i >= 0; i--) {
@@ -1824,11 +1852,18 @@ function start() {
   applyHashStartYear(); // 同步应用 hash 起始年份（不依赖 rAF，规避后台标签页节流）
   window.addEventListener('resize', () => { resizeCanvas(); requestRender(); });
 
-  /* ---------- 滚轮：无级缩放（以光标为锚点） ---------- */
+  /* ---------- 滚轮：无级缩放（以光标为锚点）；触控板横滑 = 平移 ---------- */
   wrap.addEventListener('wheel', (e) => {
     e.preventDefault();
     stopPlay();
     resetViewYear();
+    cancelAnim();
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+      state.scrollLeft = clamp(state.scrollLeft + e.deltaX, 0, maxScroll());
+      requestRender();
+      scheduleHash();
+      return;
+    }
     const rect = wrap.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const anchorPx = screenXToPx(mx);
@@ -1863,6 +1898,7 @@ function start() {
     dragMoved = false;
     downTime = performance.now();
     cancelAnim();
+    state.hoverX = null;
     hideTip();
   });
 
@@ -1872,6 +1908,7 @@ function start() {
     const my = e.clientY - rect.top;
 
     if (state.dragging) {
+      state.hoverX = null;
       const dx = pointerStart.x - mx;
       if (maxScroll() < 1) {
         // 全跨度视图：无滚动余量，横向拖拽 = 直接拨动年份（1px ≈ 1/ppy 年）
@@ -1890,10 +1927,17 @@ function start() {
       state.lastMoveT = now;
       state.lastX = mx;
     } else if (!state.pinchActive) {
+      state.hoverX = mx;
       const idx = pickEvent(mx, my);
       setHover(idx);
     }
 
+    requestRender();
+  });
+
+  canvas.addEventListener('pointerleave', () => {
+    state.hoverX = null;
+    setHover(-1);
     requestRender();
   });
 
@@ -2004,17 +2048,32 @@ function start() {
     setTimeout(() => suggestEl.classList.remove('active'), 180);
   });
   searchEl.addEventListener('keydown', (e) => {
+    // ↑/↓ 在建议里移动高亮项
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      if (!suggestEl.classList.contains('active') || !suggestItems.length) return;
+      e.preventDefault();
+      const n = suggestItems.length;
+      suggestIndex = e.key === 'ArrowDown' ? (suggestIndex + 1) % n : (suggestIndex - 1 + n) % n;
+      [...suggestEl.children].forEach((el, i) => el.classList.toggle('active', i === suggestIndex));
+      const cur = suggestEl.children[suggestIndex];
+      if (cur) cur.scrollIntoView({ block: 'nearest' });
+      return;
+    }
     if (e.key === 'Enter') {
       const val = searchEl.value.trim();
       if (!val) return;
-      const y = parseYearMaybe(val);
-      if (y !== null) {
-        goToYear(y, true);
+      if (suggestEl.classList.contains('active') && suggestItems.length) {
+        activateSuggest(suggestItems[Math.max(0, Math.min(suggestIndex, suggestItems.length - 1))]);
       } else {
-        const items = searchEvents(val);
-        if (items.length) goToEvent(items[0].i, true);
+        const y = parseYearMaybe(val);
+        if (y !== null) {
+          goToYear(y, true);
+        } else {
+          const items = searchEvents(val);
+          if (items.length) goToEvent(items[0].i, true);
+        }
+        suggestEl.classList.remove('active');
       }
-      suggestEl.classList.remove('active');
     }
   });
 
@@ -2044,11 +2103,46 @@ function start() {
   mask.addEventListener('click', closeModal);
   document.getElementById('mapRetry').addEventListener('click', () => location.reload());
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeModal();
+    const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName);
+    if (e.key === 'Escape') {
+      closeModal();
+      suggestEl.classList.remove('active');
+      return;
+    }
+    if (typing) return;
     if (e.code === 'Space' && !e.repeat &&
-        !['INPUT', 'TEXTAREA', 'BUTTON'].includes(document.activeElement.tagName)) {
+        !['BUTTON'].includes(document.activeElement.tagName)) {
       e.preventDefault();
       playToggle.click();
+      return;
+    }
+    // 「/」或 Ctrl/Cmd+K 聚焦搜索
+    if (e.key === '/' || (e.key.toLowerCase() === 'k' && (e.ctrlKey || e.metaKey) && !e.shiftKey)) {
+      e.preventDefault();
+      searchEl.focus();
+      searchEl.select();
+      return;
+    }
+    // ←/→ 步进年份（Shift = ±10 年），Home/End 直达两端
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      stopPlay();
+      resetViewYear();
+      cancelAnim();
+      const step = (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 10 : 1);
+      const y = clamp(Math.round(currentYear()) + step, MIN_YEAR, MAX_YEAR);
+      if (maxScroll() < 1) state.viewYear = y;
+      else state.scrollLeft = clamp(yearToPx(y) - state.cw / 2, 0, maxScroll());
+      state.highlightYear = y;
+      state.highlightUntil = performance.now() + 900;
+      requestRender();
+      scheduleHash();
+      return;
+    }
+    if (e.key === 'Home' || e.key === 'End') {
+      e.preventDefault();
+      stopPlay();
+      goToYear(e.key === 'Home' ? MIN_YEAR : MAX_YEAR, false);
     }
   });
 
@@ -2509,6 +2603,31 @@ function searchEvents(q) {
     .sort((a, b) => a.e.year - b.e.year);
 }
 
+let suggestItems = [];
+let suggestIndex = 0;
+
+/* 统一的建议激活入口：清空输入、收起面板、跳转 */
+function activateSuggest(it) {
+  searchEl.value = '';
+  searchEl.blur();
+  suggestEl.classList.remove('active');
+  if (!it) return;
+  if (it.type === 'year' && it.year !== null) goToYear(it.year, true);
+  else if (it.type === 'ev') goToEvent(it.idx, true);
+}
+
+/* 命中片段金色高亮（DOM 节点构建，不拼 HTML） */
+function appendHighlighted(parent, text, q) {
+  const k = q.trim().toLowerCase();
+  const idx = k ? text.toLowerCase().indexOf(k) : -1;
+  if (idx < 0) { parent.textContent = text; return; }
+  parent.append(text.slice(0, idx));
+  const mark = document.createElement('mark');
+  mark.textContent = text.slice(idx, idx + k.length);
+  parent.append(mark);
+  parent.append(text.slice(idx + k.length));
+}
+
 function updateSuggest() {
   const val = searchEl.value.trim();
   suggestEl.innerHTML = '';
@@ -2525,30 +2644,28 @@ function updateSuggest() {
   for (const r of es) {
     items.push({ type: 'ev', label: r.e.name, sub: yearToStr(r.e.year), idx: r.i });
   }
+  suggestItems = items;
+  suggestIndex = 0;
   if (!items.length) {
     suggestEl.classList.remove('active');
     return;
   }
-  items.forEach(it => {
+  items.forEach((it, i) => {
     const row = document.createElement('div');
-    row.className = 'sg-item';
+    row.className = 'sg-item' + (i === 0 ? ' active' : '');
     const label = document.createElement('span');
-    label.textContent = it.label;
+    if (it.type === 'ev') appendHighlighted(label, it.label, val);
+    else label.textContent = it.label;
     const tag = document.createElement('span');
     tag.className = 'sg-year';
     if (it.type === 'year') {
       tag.textContent = '年 份';
       row.append(label, tag);
-      if (it.year !== null) row.addEventListener('mousedown', (e) => { e.preventDefault(); goToYear(it.year, true); searchEl.value = ''; suggestEl.classList.remove('active'); });
+      if (it.year !== null) row.addEventListener('mousedown', (e) => { e.preventDefault(); activateSuggest(it); });
     } else {
       tag.textContent = it.sub;
       row.append(label, tag);
-      row.addEventListener('mousedown', (e) => {
-        e.preventDefault();
-        goToEvent(it.idx, true);
-        searchEl.value = '';
-        suggestEl.classList.remove('active');
-      });
+      row.addEventListener('mousedown', (e) => { e.preventDefault(); activateSuggest(it); });
     }
     suggestEl.appendChild(row);
   });
