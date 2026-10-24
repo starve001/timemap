@@ -27,6 +27,10 @@ jobs:
         run: node tools/build-pages.js
       - name: Pages 元数据
         uses: actions/configure-pages@v5
+        with:
+          # 自动开启 Pages（build_type=workflow）。若提示权限不足，则需手动：
+          # Settings → Pages → Build and deployment → Source 选「GitHub Actions」
+          enablement: true
       - name: 上传部署产物
         uses: actions/upload-pages-artifact@v3
         with:
