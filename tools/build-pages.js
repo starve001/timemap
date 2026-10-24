@@ -32,6 +32,9 @@ fs.copyFileSync(
 fs.copyFileSync(path.join(ROOT, 'events.json'), path.join(API, 'events'));
 // 根路径数据副本：外部门户跨站 fetch 时取 /timemap/events.json 更直观
 fs.copyFileSync(path.join(ROOT, 'events.json'), path.join(SITE, 'events.json'));
+
+// 策展门户（影院大堂）：portal/ → site/portal/，与舆图同源
+fs.cpSync(path.join(ROOT, 'portal'), path.join(SITE, 'portal'), { recursive: true });
 fs.copyFileSync(path.join(ROOT, 'data/cities.json'), path.join(API, 'cities'));
 fs.copyFileSync(
   path.join(ROOT, 'data/eras/index.json'),

@@ -4,7 +4,10 @@
 
 **🌐 在线预览（GitHub Pages）**：<https://starve001.github.io/timemap/>
 
-> Pages 版为纯静态部署（`tools/build-pages.js` 把 REST API 镜像为静态文件，推送 main 后由 GitHub Actions 自动发布）。时间轴、版图、事件全部可用；AI 助手依赖本地后端，在线版会提示不可用。
+- **策展门户（影院大堂）**：<https://starve001.github.io/timemap/portal/> —— 编辑化图文叙事（今日之史 / 时代档案馆 / 事件详情），「入舆图」深链进地图
+- **时序舆图（影厅）**：<https://starve001.github.io/timemap/> —— 本页即完整交互地图
+
+> Pages 版为纯静态部署（`tools/build-pages.js` 把 REST API 镜像为静态文件，推送 main 后由 GitHub Actions 自动发布）。时间轴、版图、事件全部可用；AI 助手依赖本地后端，在线版会提示不可用。门户可用 postMessage 驱动舆图：`{source:'mapdex-portal', type:'goto', year, lng, lat}` / `{type:'ai'}`。
 
 ## 功能特性
 - **时间轴播放 / 拖动**：年份按 5 年粒度推进，自动切换对应年代的全球版图切片

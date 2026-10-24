@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MAPDEX 门户 · 世界历史策展</title>
+<meta name="description" content="MAPDEX 时序地图门户：公元前 221 — 公元 1918，2139 年，224 个改变世界的瞬间。策展式阅读，一键进入时序舆图。" />
+<!--
+  MAPDEX 门户（影院大堂）：策展层，舆图是藏在 /#/atlas 后的影厅。
+  三个可替换处（见下方注释标记）：
+    [可替换 1] 数据源 DATA_URL（默认同源 ../api/events）
+    [可替换 2] 「今日之史」选段策略 todayPool()/todayIndex()
+    [可替换 3] 时代章节边界 CHAPTERS（档案管家升级为数据驱动分界时只改这里）
+  换色只需改 :root 设计令牌（--bg/--gold/--cinnabar 与面板渐变）。
+-->
+<style>
+:root {
+  --bg: #0A0E17;
+  --panel-hi: rgba(17,23,38,.87);
+  --panel-lo: rgba(10,14,23,.88);
+  --line: rgba(255,255,255,.07);
+  --line-gold: rgba(201,162,75,.34);
+  --gold: #C9A24B;
+  --gold-hi: #E9CC85;
+  --cinnabar: #A8433A;
+  --t1: #EFF1F7; --t2: #C7CCD9; --t3: #8B93A6; --t4: #5F6779;
+  --r-s: 8px; --r-m: 12px; --r-l: 16px;
+  --serif: Georgia, "Times New Roman", "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STZhongsong", SimSun, serif;
+  --mono: "SF Mono", Consolas, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background:
+    radial-gradient(1000px 600px at 85% -5%, rgba(74,98,158,.14), transparent 60%),
+    radial-gradient(1200px 700px at 8% 110%, rgba(201,162,75,.07), transparent 60%),
+    var(--bg);
+  color: var(--t2);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+/* 胶片颗粒：全站薄覆一层印刷质感 */
+body::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 40;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='linear' slope='0.05'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E") repeat;
+}
+::selection { background: rgba(201,162,75,.32); color: #fff; }
+a { color: inherit; }
+
+/* ---------- 顶栏 ---------- */
+.top {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 13px 22px;
+  background: rgba(10,14,23,.85);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line);
+}
+.brand {
+  font-family: var(--serif); font-size: 17px; font-weight: 600;
+  color: var(--t1); letter-spacing: .06em; text-decoration: none;
+  display: flex; align-items: center; gap: 10px;
+}
+.brand .dm { width: 6px; height: 6px; background: linear-gradient(135deg, var(--gold-hi), var(--gold)); transform: rotate(45deg); }
+.brand small { font-family: var(--mono); font-size: 10px; color: var(--t4); letter-spacing: .18em; margin-left: 4px; }
+.top nav { display: flex; align-items: center; gap: 4px; }
+.top nav a { color: var(--t3); text-decoration: none; font-size: 13px; padding: 7px 12px; border-radius: 999px; letter-spacing: .08em; transition: color .15s, background .15s; }
+.top nav a:hover { color: var(--gold-hi); }
+.top nav a.on { color: var(--gold-hi); background: rgba(201,162,75,.1); }
+
+/* ---------- 布局骨架 ---------- */
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 22px 90px; }
+.sec { margin-top: 66px; }
+.sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.sec-title { font-family: var(--serif); font-size: 22px; font-weight: 600; color: var(--t1); letter-spacing: .04em; display: flex; align-items: center; gap: 10px; }
+.sec-title::before { content: ""; width: 6px; height: 6px; flex: 0 0 auto; background: linear-gradient(135deg, var(--gold-hi), var(--gold)); transform: rotate(45deg); }
+.sec-sub { color: var(--t4); font-size: 11px; font-family: var(--mono); letter-spacing: .06em; }
+
+/* ---------- Hero ---------- */
+.hero { padding: 10vh 0 4vh; }
+.kicker { font-family: var(--mono); color: var(--t4); font-size: 11px; letter-spacing: .32em; }
+.hero h1 { font-family: var(--serif); font-size: clamp(40px, 7vw, 82px); font-weight: 600; color: var(--t1); letter-spacing: .04em; margin: 16px 0 12px; line-height: 1.15; }
+.hero .sub { color: var(--t3); font-size: 14px; letter-spacing: .06em; line-height: 1.8; }
+.hero .sub b { color: var(--gold-hi); font-weight: 600; }
+.hero .ctas { margin-top: 28px; display: flex; gap: 12px; flex-wrap: wrap; }
+.hero-axis { margin-top: 38px; }
+.hero-axis svg { width: 100%; height: 96px; display: block; }
+
+/* ---------- 按钮 ---------- */
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 20px; border-radius: 999px;
+  border: 1px solid var(--line); background: rgba(255,255,255,.03);
+  color: var(--t2); font-size: 13px; letter-spacing: .06em;
+  cursor: pointer; text-decoration: none; font-family: inherit;
+  transition: border-color .18s, color .18s, background .18s, transform .18s;
+}
+.btn:hover { border-color: var(--line-gold); color: var(--gold-hi); }
+.btn.primary { border-color: rgba(201,162,75,.5); color: var(--gold-hi); background: rgba(201,162,75,.1); }
+.btn.primary:hover { background: rgba(201,162,75,.18); transform: translateY(-1px); }
+
+/* ---------- 今日之史 ---------- */
+.today {
+  margin-top: 54px;
+  background: linear-gradient(180deg, var(--panel-hi), var(--panel-lo));
+  border: 1px solid var(--line-gold); border-radius: var(--r-l);
+  padding: clamp(26px, 4vw, 46px);
+  position: relative; overflow: hidden;
+  box-shadow: 0 24px 64px rgba(2,4,10,.5), inset 0 1px 0 rgba(233,204,133,.05);
+}
+.today .tag { font-family: var(--mono); font-size: 10px; color: var(--t4); letter-spacing: .3em; }
+.today .giant { font-family: var(--serif); color: var(--gold-hi); font-size: clamp(54px, 11vw, 132px); font-weight: 600; line-height: 1; letter-spacing: .02em; margin: 12px 0 6px; }
+.today .giant .era { font-size: .3em; color: var(--t3); letter-spacing: .3em; margin-right: 12px; }
+.today .nm { font-family: var(--serif); font-size: clamp(19px, 2.6vw, 27px); color: var(--t1); margin-bottom: 12px; line-height: 1.5; }
+.today .desc { font-size: 13.5px; line-height: 1.9; color: var(--t2); max-width: 62ch; }
+.today .people { margin: 14px 0 20px; display: flex; gap: 8px; flex-wrap: wrap; }
+.today .ctas { display: flex; gap: 10px; flex-wrap: wrap; }
+.chip { padding: 3px 11px; border-radius: 999px; background: rgba(255,255,255,.04); border: 1px solid var(--line); font-size: 12px; color: var(--t3); }
+
+/* ---------- 统计条 ---------- */
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 56px; }
+.stat { border: 1px solid var(--line); border-radius: var(--r-m); padding: 18px 10px; text-align: center; background: linear-gradient(180deg, var(--panel-hi), var(--panel-lo)); }
+.stat b { display: block; font-family: var(--serif); font-size: 30px; font-weight: 600; color: var(--gold-hi); }
+.stat span { font-size: 10px; color: var(--t4); letter-spacing: .22em; }
+@media (max-width: 640px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+
+/* ---------- 卡片横排 ---------- */
+.row { display: flex; gap: 14px; overflow-x: auto; padding: 4px 2px 14px; scroll-snap-type: x proximity; }
+.row::-webkit-scrollbar { height: 6px; }
+.row::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 3px; }
+.row::-webkit-scrollbar-track { background: transparent; }
+.card {
+  flex: 0 0 246px; scroll-snap-align: start;
+  background: linear-gradient(180deg, var(--panel-hi), var(--panel-lo));
+  border: 1px solid var(--line); border-radius: var(--r-m);
+  padding: 16px; cursor: pointer; position: relative; overflow: hidden;
+  transition: transform .18s, border-color .18s;
+}
+.card:hover { transform: translateY(-3px); border-color: var(--line-gold); }
+.card .yr { font-family: var(--mono); font-size: 11px; color: var(--t3); display: flex; align-items: center; gap: 7px; }
+.card .nm { font-size: 14px; color: var(--t1); line-height: 1.5; margin-top: 7px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card .meta { font-size: 11px; color: var(--t4); margin-top: 9px; }
+.card .desc { font-size: 12px; color: var(--t3); line-height: 1.65; margin-top: 9px; max-height: 0; opacity: 0; overflow: hidden; transition: max-height .28s, opacity .28s; }
+.card:hover .desc { max-height: 88px; opacity: 1; }
+@media (hover: none) { .card .desc { max-height: 88px; opacity: 1; } .card:hover { transform: none; } }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+
+/* 世纪卡 */
+.card.century { flex-basis: 200px; }
+.card.century .cn { font-family: var(--serif); font-size: 19px; color: var(--gold-hi); margin-top: 8px; }
+.card.century .ct { font-family: var(--mono); font-size: 10px; color: var(--t4); letter-spacing: .18em; }
+
+/* 同期对照 */
+.pair { flex: 0 0 360px; display: flex; scroll-snap-align: start; overflow: hidden; border-radius: var(--r-m); border: 1px solid var(--line); background: linear-gradient(180deg, var(--panel-hi), var(--panel-lo)); }
+.pair > div { flex: 1; padding: 15px; cursor: pointer; transition: background .15s; min-width: 0; }
+.pair > div:hover { background: rgba(201,162,75,.07); }
+.pair > div + div { border-left: 1px solid var(--line); }
+.pair .yr { font-family: var(--mono); font-size: 11px; color: var(--t3); }
+.pair .nm { font-size: 13px; color: var(--t1); line-height: 1.5; margin-top: 6px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.pair .vs { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 10px; font-family: var(--mono); font-size: 10px; color: var(--gold); }
+.pair .vs span { border: 1px solid var(--line-gold); border-radius: 4px; padding: 3px 5px; writing-mode: vertical-rl; letter-spacing: .2em; }
+
+/* ---------- 档案馆 ---------- */
+.chapter { padding: 54px 0; border-top: 1px solid var(--line); }
+.chapter:first-of-type { border-top: none; padding-top: 20px; }
+.chapter .range { font-family: var(--serif); font-size: clamp(38px, 7vw, 96px); color: var(--t1); line-height: 1.05; letter-spacing: .02em; }
+.chapter .range .dash { color: var(--gold); }
+.chapter .ch-name { font-family: var(--serif); font-size: 19px; color: var(--gold-hi); margin: 8px 0 4px; }
+.chapter .ch-meta { font-size: 12px; color: var(--t4); margin-bottom: 18px; }
+.ch-tl { margin: 20px 0 22px; border-left: 1px solid var(--line); padding-left: 22px; }
+.ch-ev { padding: 8px 10px 8px 0; display: flex; gap: 14px; align-items: baseline; cursor: pointer; border-radius: 6px; }
+.ch-ev:hover .nm { color: var(--gold-hi); }
+.ch-ev .yr { font-family: var(--mono); font-size: 12px; color: var(--t3); min-width: 68px; flex: 0 0 auto; }
+.ch-ev .nm { font-size: 13.5px; color: var(--t2); transition: color .15s; }
+.ch-ev .im { font-size: 10px; color: var(--gold); letter-spacing: .1em; }
+
+/* ---------- 详情页 ---------- */
+.detail { max-width: 720px; margin: 0 auto; padding-top: 46px; }
+.detail .giant { font-family: var(--serif); color: var(--gold-hi); font-size: clamp(52px, 9vw, 108px); font-weight: 600; line-height: 1; }
+.detail .giant .era { font-size: .32em; color: var(--t3); letter-spacing: .3em; margin-right: 12px; }
+.detail .badges { margin: 14px 0 8px; display: flex; align-items: center; gap: 10px; }
+.detail h2 { font-family: var(--serif); font-size: clamp(24px, 3.4vw, 32px); font-weight: 600; color: var(--t1); line-height: 1.45; margin-bottom: 22px; }
+.detail .desc { font-size: 15.5px; line-height: 2.05; color: var(--t2); text-align: justify; }
+.detail .people { margin: 22px 0; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.detail .people .lbl { font-size: 11px; color: var(--t4); letter-spacing: .2em; margin-right: 4px; }
+.place { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 24px 0; padding: 13px 16px; border: 1px solid var(--line); border-radius: var(--r-m); background: linear-gradient(180deg, var(--panel-hi), var(--panel-lo)); font-size: 13px; }
+.place .pn { color: var(--gold-hi); }
+.place .geo { font-family: var(--mono); font-size: 11px; color: var(--t4); }
+.grat { margin: 30px 0; border: 1px solid var(--line); border-radius: var(--r-m); overflow: hidden; }
+.grat svg { display: block; width: 100%; height: auto; }
+.rel-title { margin: 34px 0 12px; }
+.detail .ctas { margin-top: 30px; display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* ---------- 舆图层 ---------- */
+.atlas-bar {
+  position: fixed; top: 0; left: 0; right: 0; height: 46px; z-index: 30;
+  display: flex; align-items: center; gap: 16px; padding: 0 14px;
+  background: rgba(10,14,23,.88);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.atlas-bar .byr { font-family: var(--mono); color: var(--gold-hi); letter-spacing: .08em; }
+.atlas-bar .sp { flex: 1; }
+.atlas-bar .btn { padding: 6px 14px; font-size: 12px; }
+.atlas-holder { position: fixed; inset: 46px 0 0 0; }
+.atlas-holder iframe { width: 100%; height: 100%; border: 0; display: block; background: var(--bg); }
+
+/* ---------- 状态 ---------- */
+.center-msg { padding: 18vh 20px; text-align: center; }
+.center-msg .p { display: inline-block; padding: 14px 26px; border: 1px solid var(--line-gold); border-radius: 2px; background: rgba(8,11,19,.8); color: var(--gold-hi); font-family: var(--serif); font-size: 16px; letter-spacing: .1em; }
+.center-msg .s { margin-top: 14px; font-size: 12px; color: var(--t4); }
+.center-msg .btn { margin-top: 18px; }
+
+@media (max-width: 640px) {
+  .top { padding: 12px 16px; }
+  .brand small { display: none; }
+  .wrap { padding: 0 16px 70px; }
+  .today { padding: 24px 20px; }
+  .pair { flex-basis: 320px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="#/"><span class="dm"></span>MAPDEX<small>TEMPORAL ATLAS PORTAL</small></a>
+  <nav id="nav">
+    <a href="#/" data-r="home">首页</a>
+    <a href="#/archive" data-r="archive">档案馆</a>
+    <a href="#/atlas" data-r="atlas">舆图</a>
+  </nav>
+</header>
+<main id="app"></main>
+<noscript>门户需要启用 JavaScript 才能调取史料数据。</noscript>
+
+<script>
+'use strict';
+/* ============================================================
+ * MAPDEX 门户（影院大堂）
+ * 舆图契约：iframe src 带 #y=<年>&map=<z>/<经度>/<纬度> 初次定位；
+ * 进入后用 postMessage {source:'mapdex-portal'} 驱动（goto / ai）。
+ * ============================================================ */
+
+/* [可替换 1] 数据源：同源部署（/timemap/portal/）取 ../api/events；
+   门户独立部署时改为 'https://starve001.github.io/timemap/api/events' */
+const DATA_URL = '../api/events';
+const ERAS_URL = '../api/eras/index.json';
+const ATLAS_BASE = '../';                     // 舆图页（相对本门户）
+const MIN_YEAR = -221, MAX_YEAR = 1918;
+const CATS = [
+  { key: 'politics', name: '政治', color: '#C9A24B' },
+  { key: 'military', name: '军事', color: '#C06B5E' },
+  { key: 'culture',  name: '文化', color: '#8A7BB8' },
+  { key: 'tech',     name: '科技', color: '#5FA3B5' },
+  { key: 'economy',  name: '经济', color: '#7AA66A' },
+];
+const CAT_MAP = Object.fromEntries(CATS.map(c => [c.key, c]));
+/* [可替换 3] 时代章节边界（含头不含尾） */
+const CHAPTERS = [
+  { from: -221, to: 220,  name: '秦汉与罗马' },
+  { from: 220,  to: 589,  name: '轴心之后：分裂与信仰' },
+  { from: 589,  to: 907,  name: '盛世与扩张' },
+  { from: 907,  to: 1279, name: '中古欧亚' },
+  { from: 1279, to: 1492, name: '蒙古之后' },
+  { from: 1492, to: 1650, name: '大航海与宗教战争' },
+  { from: 1650, to: 1789, name: '绝对主义与启蒙' },
+  { from: 1789, to: 1918, name: '革命与世界大战' },
+];
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const state = { events: null, eraCount: 0 };
+const app = document.getElementById('app');
+let lastRouteKey = null;
+
+/* ---------- 工具 ---------- */
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+}
+function yearToStr(y) { return y < 0 ? `公元前 ${-y} 年` : `公元 ${y} 年`; }
+function yearShort(y) { return y < 0 ? `前 ${-y}` : `${y}`; }
+function starStr(im) { return im === 3 ? '★★★' : im === 2 ? '★★' : '★'; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function centuryOf(y) { return y < 0 ? `前 ${Math.ceil(-y / 100)} 世纪` : `${Math.ceil(y / 100)} 世纪`; }
+function catDot(cat) { const s = el('span', 'dot'); s.style.background = (CAT_MAP[cat] || { color: '#8a93a8' }).color; return s; }
+
+/* 事件 → 舆图路由（深链一律由数据现场生成，禁止手写坐标） */
+function atlasHash(e, zoom) {
+  const z = (zoom ?? (e.importance === 3 ? 3.4 : 3.0)).toFixed(2);
+  return `#/atlas?y=${e.year}&lng=${e.lng}&lat=${e.lat}&z=${z}`;
+}
+function gotoAtlas(e, zoom) { location.hash = atlasHash(e, zoom); }
+
+/* [可替换 2] 「今日之史」选段策略：importance=3 池 + 日期哈希，同一天恒定 */
+function todayEvent(events) {
+  const pool = events.filter(e => e.importance === 3);
+  if (!pool.length) return null;
+  const dayIndex = Math.floor(Date.now() / 86400000) % pool.length;
+  return pool[dayIndex];
+}
+
+/* 同期对照配对：|Δyear|≤30、importance≥2、跨东西半球（lng 50 分界） */
+function buildPairs(events) {
+  const cand = events.filter(e => e.importance >= 2 && typeof e.lng === 'number');
+  const used = new Set();
+  const pairs = [];
+  for (const e of cand) {
+    if (used.has(e)) continue;
+    let best = null, bestD = 31;
+    for (const f of cand) {
+      if (f === e || used.has(f)) continue;
+      if ((f.lng >= 50) === (e.lng >= 50)) continue;
+      const d = Math.abs(f.year - e.year);
+      if (d <= 30 && d < bestD) { best = f; bestD = d; }
+    }
+    if (best) { used.add(e); used.add(best); pairs.push([e, best]); }
+  }
+  return pairs.slice(0, 8);
+}
+
+function countUp(node, target) {
+  if (reducedMotion) { node.textContent = String(target); return; }
+  const t0 = performance.now(), dur = 900;
+  (function step(t) {
+    const k = clamp((t - t0) / dur, 0, 1);
+    node.textContent = String(Math.round(target * (1 - Math.pow(1 - k, 3))));
+    if (k < 1) requestAnimationFrame(step);
+  })(t0);
+}
+
+/* ---------- 静态装饰：Hero 年轴 + 详情经纬网格（数字拼接，无外部数据） ---------- */
+function heroAxisSVG(events) {
+  const W = 1000, H = 110, x0 = 14, x1 = W - 14, mid = H / 2;
+  const X = y => x0 + (y - MIN_YEAR) / (MAX_YEAR - MIN_YEAR) * (x1 - x0);
+  let dots = '';
+  for (const e of events) {
+    if (e.importance !== 3) continue;
+    const cy = mid + ((e.year * 37) % 23) - 11;
+    dots += `<circle cx="${X(e.year).toFixed(1)}" cy="${cy.toFixed(1)}" r="3" fill="#E9CC85" opacity="${e.year >= 0 ? '.75' : '.45'}"/>`;
+  }
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+    <defs><linearGradient id="ax" x1="0" x2="1">
+      <stop offset="0" stop-color="#C9A24B" stop-opacity=".1"/>
+      <stop offset=".12" stop-color="#C9A24B" stop-opacity=".55"/>
+      <stop offset=".5" stop-color="#E9CC85" stop-opacity=".8"/>
+      <stop offset=".88" stop-color="#C9A24B" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#C9A24B" stop-opacity=".1"/>
+    </linearGradient></defs>
+    <line x1="${x0}" y1="${mid}" x2="${x1}" y2="${mid}" stroke="url(#ax)" stroke-width="2"/>
+    <line x1="${x0}" y1="${mid}" x2="${X(0).toFixed(1)}" y2="${mid}" stroke="#C9A24B" stroke-opacity=".12" stroke-width="14"/>
+    ${dots}
+    <text x="${x0}" y="${H - 6}" font-family="SF Mono,Consolas,monospace" font-size="11" fill="#5F6779">前 221</text>
+    <text x="${x1}" y="${H - 6}" text-anchor="end" font-family="SF Mono,Consolas,monospace" font-size="11" fill="#5F6779">1918</text>
+    <text x="${X(0).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-family="SF Mono,Consolas,monospace" font-size="10" fill="#3d4456">公元元年</text>
+  </svg>`;
+}
+
+function graticuleSVG(e) {
+  const W = 720, Hh = 340;
+  const gx = (lng) => ((lng + 180) / 360) * W;
+  const gy = (lat) => ((90 - lat) / 180) * Hh;
+  let grid = '';
+  for (let lng = -150; lng <= 180; lng += 30) {
+    grid += `<line x1="${gx(lng).toFixed(1)}" y1="0" x2="${gx(lng).toFixed(1)}" y2="${Hh}" stroke="rgba(255,255,255,.05)" stroke-width="1"/>`;
+  }
+  for (let lat = -60; lat <= 90; lat += 30) {
+    grid += `<line x1="0" y1="${gy(lat).toFixed(1)}" x2="${W}" y2="${gy(lat).toFixed(1)}" stroke="rgba(255,255,255,.05)" stroke-width="1"/>`;
+  }
+  const px = gx(e.lng).toFixed(1), py = gy(e.lat).toFixed(1);
+  return `<svg viewBox="0 0 ${W} ${Hh}" aria-hidden="true">
+    <rect width="${W}" height="${Hh}" fill="rgba(8,11,19,.6)"/>${grid}
+    <line x1="0" y1="${gy(0).toFixed(1)}" x2="${W}" y2="${gy(0).toFixed(1)}" stroke="rgba(201,162,75,.25)" stroke-width="1"/>
+    <circle cx="${px}" cy="${py}" r="10" fill="none" stroke="#C9A24B" stroke-opacity=".35"/>
+    <circle cx="${px}" cy="${py}" r="4" fill="#E9CC85"/>
+    <text x="${(Number(px) + 14).toFixed(1)}" y="${(Number(py) - 10).toFixed(1)}" font-family="SF Mono,Consolas,monospace" font-size="12" fill="#E9CC85">${e.lng.toFixed(1)}, ${e.lat.toFixed(1)}</text>
+  </svg>`;
+}
+
+/* ---------- 卡片工厂 ---------- */
+function eventCard(e) {
+  const c = el('div', 'card');
+  const yr = el('div', 'yr');
+  yr.append(catDot(e.cat), el('span', null, yearToStr(e.year) + (e.place ? ' · ' + e.place : '')));
+  c.append(yr, el('div', 'nm', e.name));
+  c.append(el('div', 'meta', `${starStr(e.importance)} · ${yearShort(e.year)}`));
+  if (e.desc) c.append(el('div', 'desc', e.desc.slice(0, 90)));
+  c.addEventListener('click', () => { location.hash = '#/event/' + state.events.indexOf(e); });
+  return c;
+}
+
+function pairCard(pair) {
+  const [a, b] = pair;
+  const box = el('div', 'pair');
+  for (const e of [a, b]) {
+    const half = el('div');
+    half.append(el('div', 'yr', yearShort(e.year)), el('div', 'nm', e.name));
+    half.addEventListener('click', () => { location.hash = '#/event/' + state.events.indexOf(e); });
+    box.append(half);
+  }
+  const vs = el('div', 'vs');
+  vs.append(el('span', null, '同期'));
+  box.insertBefore(vs, box.children[1]);
+  return box;
+}
+
+function sectionRow(title, sub, nodes) {
+  const sec = el('section', 'sec');
+  const head = el('div', 'sec-head');
+  head.append(el('div', 'sec-title', title), el('div', 'sec-sub', sub));
+  const row = el('div', 'row');
+  nodes.forEach(n => row.append(n));
+  sec.append(head, row);
+  return sec;
+}
+
+/* ---------- 路由渲染 ---------- */
+function renderHome(events) {
+  document.title = 'MAPDEX 门户 · 世界历史策展';
+  const wrap = el('div', 'wrap');
+  const evIdx = e => events.indexOf(e);
+
+  /* Hero */
+  const hero = el('section', 'hero');
+  hero.append(el('div', 'kicker', 'TEMPORAL ATLAS · CINEMATIC PORTAL'));
+  const h1 = el('h1', null, 'MAPDEX · 时序地图');
+  hero.append(h1);
+  const evCount = events.length;
+  const sub = el('p', 'sub');
+  const b1 = el('b', null, `公元前 221 — 公元 1918`), b2 = el('b', null, `2139 年`), b3 = el('b', null, `${evCount} 个改变世界的瞬间`);
+  sub.append('从', b1, '，', b2, '，', b3, '。这里是它们的大堂——展厅在深处。');
+  hero.append(sub);
+  const ctas = el('div', 'ctas');
+  const ctaA = el('a', 'btn primary', '进入时代档案馆'); ctaA.href = '#/archive';
+  const ctaB = el('a', 'btn', '直接进入舆图'); ctaB.href = '#/atlas';
+  ctas.append(ctaA, ctaB);
+  hero.append(ctas);
+  const axis = el('div', 'hero-axis');
+  axis.innerHTML = heroAxisSVG(events);
+  hero.append(axis);
+  wrap.append(hero);
+
+  /* 今日之史 */
+  const t = todayEvent(events);
+  if (t) {
+    const card = el('section', 'today');
+    card.append(el('div', 'tag', "TODAY IN HISTORY · 今日之史"));
+    const giant = el('div', 'giant');
+    const era = el('span', 'era', t.year < 0 ? '公元前' : '公元');
+    giant.append(era, el('span', null, String(Math.abs(t.year))));
+    card.append(giant);
+    card.append(el('div', 'nm', t.name));
+    if (t.desc) card.append(el('div', 'desc', t.desc));
+    if (t.people && t.people.length) {
+      const pp = el('div', 'people');
+      pp.append(el('span', 'chip', '相关人物'));
+      t.people.forEach(p => pp.append(el('span', 'chip', p)));
+      card.append(pp);
+    }
+    const tc = el('div', 'ctas');
+    const read = el('a', 'btn', '读全篇'); read.href = '#/event/' + evIdx(t);
+    const map = el('a', 'btn primary', '入舆图 · 定位此处'); map.href = atlasHash(t);
+    tc.append(read, map);
+    card.append(tc);
+    wrap.append(card);
+  }
+
+  /* 统计条 */
+  const stats = el('div', 'stats');
+  const defs = [
+    [MAX_YEAR - MIN_YEAR, '年 跨 度'],
+    [evCount, '历 史 事 件'],
+    [state.eraCount || 39, '版 图 切 片'],
+    [CATS.length, '事 件 类 别'],
+  ];
+  for (const [v, label] of defs) {
+    const s = el('div', 'stat');
+    const b = el('b', null, '0');
+    s.append(b, el('span', null, label));
+    stats.append(s);
+    countUp(b, v);
+  }
+  wrap.append(stats);
+
+  /* 同期对照 */
+  const pairs = buildPairs(events);
+  if (pairs.length) {
+    wrap.append(sectionRow('同期对照', '同一时代的东西方 · Δyear ≤ 30', pairs.map(pairCard)));
+  }
+
+  /* 世纪群像 */
+  const byCentury = new Map();
+  for (const e of events) {
+    const k = centuryOf(e.year);
+    if (!byCentury.has(k)) byCentury.set(k, []);
+    byCentury.get(k).push(e);
+  }
+  const centuryCards = [...byCentury.entries()]
+    .sort((a, b) => a[1][0].year - b[1][0].year)
+    .map(([k, list]) => {
+      list.sort((a, b) => b.importance - a.importance || Math.abs(a.year) - Math.abs(b.year));
+      const top = list[0];
+      const c = el('div', 'card century');
+      c.append(el('div', 'ct', list.length + ' 事'));
+      c.append(el('div', 'cn', k));
+      c.append(el('div', 'nm', top.name));
+      c.append(el('div', 'meta', '代表 · ' + yearShort(top.year)));
+      c.addEventListener('click', () => gotoAtlas(top, 2.6));
+      return c;
+    });
+  if (centuryCards.length) {
+    wrap.append(sectionRow('世纪群像', '每个世纪最重要的一件事 · 点击入舆图', centuryCards));
+  }
+
+  /* 分类五排 */
+  for (const cat of CATS) {
+    const list = events.filter(e => e.cat === cat.key).sort((a, b) => a.year - b.year);
+    if (!list.length) continue;
+    wrap.append(sectionRow(cat.name + '之部', list.length + ' 事 · 按年代', list.map(eventCard)));
+  }
+
+  app.append(wrap);
+}
+
+function renderArchive(events) {
+  document.title = '时代档案馆 · MAPDEX';
+  const wrap = el('div', 'wrap');
+  const hero = el('div', 'hero');
+  hero.style.padding = '7vh 0 0';
+  hero.append(el('div', 'kicker', 'THE ARCHIVE · 八章编年'));
+  const h1 = el('h1', null, '时代档案馆');
+  hero.append(h1, el('p', 'sub', '两千一百三十九年，切成八章。每一章都可以乘舆图巡游。'));
+  wrap.append(hero);
+
+  for (const ch of CHAPTERS) {
+    const list = events.filter(e => e.year >= ch.from && (e.year < ch.to || (ch.to === MAX_YEAR && e.year <= ch.to)))
+      .sort((a, b) => a.year - b.year);
+    if (!list.length) continue;
+    const sec = el('section', 'chapter');
+    const range = el('div', 'range');
+    range.append(el('span', null, yearShort(ch.from)), el('span', 'dash', ' — '), el('span', null, yearShort(ch.to)));
+    sec.append(range, el('div', 'ch-name', ch.name), el('div', 'ch-meta', `${list.length} 事 · ${centuryOf(ch.from + 60)}起`));
+    const tl = el('div', 'ch-tl');
+    for (const e of list) {
+      const row = el('div', 'ch-ev');
+      row.append(el('span', 'yr', yearShort(e.year)));
+      row.append(el('span', 'nm', e.name));
+      if (e.importance === 3) row.append(el('span', 'im', '★★★'));
+      row.addEventListener('click', () => { location.hash = '#/event/' + events.indexOf(e); });
+      tl.append(row);
+    }
+    sec.append(tl);
+    const anchor = list.find(e => e.importance === 3) || list[0];
+    const tour = el('a', 'btn primary', '以舆图巡游此时代');
+    tour.href = atlasHash(anchor, 2.4);
+    sec.append(tour);
+    wrap.append(sec);
+  }
+  app.append(wrap);
+}
+
+function renderEvent(events, idx) {
+  const e = events[idx];
+  if (!e) { location.hash = '#/'; return; }
+  document.title = e.name + ' · MAPDEX';
+  const wrap = el('div', 'detail wrap');
+
+  const giant = el('div', 'giant');
+  giant.append(el('span', 'era', e.year < 0 ? '公元前' : '公元'), el('span', null, String(Math.abs(e.year))));
+  wrap.append(giant);
+
+  const badges = el('div', 'badges');
+  const badge = el('span', 'chip', CAT_MAP[e.cat] ? CAT_MAP[e.cat].name : e.cat);
+  badge.style.borderColor = (CAT_MAP[e.cat] || { color: '#8a93a8' }).color;
+  badge.style.color = (CAT_MAP[e.cat] || { color: '#8a93a8' }).color;
+  badges.append(badge, el('span', 'sec-sub', starStr(e.importance) + ' · ' + centuryOf(e.year)));
+  wrap.append(badges);
+
+  wrap.append(el('h2', null, e.name));
+  wrap.append(el('p', 'desc', e.desc || '（暂无正文）'));
+
+  if (e.people && e.people.length) {
+    const pp = el('div', 'people');
+    pp.append(el('span', 'lbl', '相关人物'));
+    e.people.forEach(p => pp.append(el('span', 'chip', p)));
+    wrap.append(pp);
+  }
+  if (e.place) {
+    const pc = el('div', 'place');
+    pc.append(el('span', 'pn', '📍 ' + e.place));
+    if (typeof e.lng === 'number') pc.append(el('span', 'geo', `${e.lng.toFixed(2)}°E · ${e.lat.toFixed(2)}°N`));
+    wrap.append(pc);
+  }
+  if (typeof e.lng === 'number') {
+    const g = el('div', 'grat');
+    g.innerHTML = graticuleSVG(e);
+    wrap.append(g);
+  }
+
+  const rel = events
+    .map((x, i) => ({ x, i }))
+    .filter(({ x, i }) => i !== idx && x.importance >= 2 && Math.abs(x.year - e.year) <= 100)
+    .sort((a, b) => Math.abs(a.x.year - e.year) - Math.abs(b.x.year - e.year) || a.x.year - b.x.year)
+    .slice(0, 8);
+  if (rel.length) {
+    const sec = el('section', 'sec rel-title');
+    sec.style.marginTop = '30px';
+    sec.append(el('div', 'sec-title', '同期年度事件'));
+    const tl = el('div', 'ch-tl');
+    for (const { x, i } of rel) {
+      const row = el('div', 'ch-ev');
+      row.append(el('span', 'yr', yearShort(x.year)), el('span', 'nm', x.name));
+      row.addEventListener('click', () => { location.hash = '#/event/' + i; });
+      tl.append(row);
+    }
+    sec.append(tl);
+    wrap.append(sec);
+  }
+
+  const ctas = el('div', 'ctas');
+  if (typeof e.lng === 'number') {
+    const m = el('a', 'btn primary', '在时序舆图中定位');
+    m.href = atlasHash(e);
+    ctas.append(m);
+  }
+  const back = el('a', 'btn', '返回首页'); back.href = '#/';
+  ctas.append(back);
+  wrap.append(ctas);
+  app.append(wrap);
+}
+
+function renderAtlas(q) {
+  document.title = '舆图 · MAPDEX';
+  const y = parseInt(q.get('y'), 10);
+  const lng = parseFloat(q.get('lng'));
+  const lat = parseFloat(q.get('lat'));
+  const z = (parseFloat(q.get('z')) || 3.2).toFixed(2);
+  const ai = q.get('ai') === '1';
+
+  const bar = el('div', 'atlas-bar');
+  const back = el('a', 'btn', '◀ 返回门户'); back.href = '#/';
+  bar.append(back);
+  bar.append(el('span', 'byr', isNaN(y) ? '全域视图' : '当前定位 · ' + yearToStr(y)));
+  bar.append(el('span', 'sp'));
+  const aiBtn = el('button', 'btn', 'AI 问史');
+  aiBtn.addEventListener('click', () => {
+    const f = document.querySelector('.atlas-holder iframe');
+    if (f && f.contentWindow) f.contentWindow.postMessage({ source: 'mapdex-portal', type: 'ai' }, '*');
+  });
+  bar.append(aiBtn);
+
+  const holder = el('div', 'atlas-holder');
+  const frame = document.createElement('iframe');
+  frame.title = 'MAPDEX 时序舆图';
+  frame.src = ATLAS_BASE + (isNaN(y) || isNaN(lng) || isNaN(lat)
+    ? '#y=1'
+    : `#y=${y}&map=${z}/${lng}/${lat}`);
+  frame.addEventListener('load', () => {
+    if (isNaN(y) || isNaN(lng) || isNaN(lat)) return;
+    // 自愈：初始化期若中心被瞬态竞争带偏，load 后重新确认一次定位
+    try { frame.contentWindow.postMessage({ source: 'mapdex-portal', type: 'goto', year: y, lng, lat, zoom: parseFloat(z) }, '*'); } catch (_) {}
+    if (ai) frame.contentWindow.postMessage({ source: 'mapdex-portal', type: 'ai' }, '*');
+  });
+  holder.append(frame);
+  app.append(bar, holder);
+}
+
+function renderError(err) {
+  const box = el('div', 'center-msg');
+  box.append(el('div', 'p', '史料调取失败'));
+  box.append(el('div', 's', '无法读取事件数据（' + (err && err.message || err) + '）。请确认网络后重试。'));
+  const retry = el('button', 'btn primary', '重新调取');
+  retry.addEventListener('click', () => location.reload());
+  box.append(retry);
+  app.append(box);
+}
+
+function renderLoading() {
+  const box = el('div', 'center-msg');
+  box.append(el('div', 'p', '正在调取史料…'));
+  app.append(box);
+}
+
+/* ---------- 路由 ---------- */
+function parseRoute() {
+  const h = location.hash.replace(/^#/, '') || '/';
+  const qi = h.indexOf('?');
+  const path = qi >= 0 ? h.slice(0, qi) : h;
+  return { seg: path.split('/').filter(Boolean), query: new URLSearchParams(qi >= 0 ? h.slice(qi + 1) : '') };
+}
+
+function route() {
+  const { seg, query } = parseRoute();
+  const key = location.hash || '#/';
+  if (key === lastRouteKey) return;
+  lastRouteKey = key;
+  app.innerHTML = '';
+  document.querySelectorAll('#nav a').forEach(a =>
+    a.classList.toggle('on', a.dataset.r === (seg[0] || 'home')));
+
+  if (!state.events) { renderLoading(); return; }
+  const r0 = seg[0] || '';
+  if (r0 === 'archive') renderArchive(state.events);
+  else if (r0 === 'event') renderEvent(state.events, parseInt(seg[1], 10));
+  else if (r0 === 'atlas') renderAtlas(query);
+  else renderHome(state.events);
+  window.scrollTo(0, 0);
+}
+
+async function boot() {
+  route(); // 先画 loading
+  try {
+    const [evRes, erasRes] = await Promise.all([
+      fetch(DATA_URL).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
+      fetch(ERAS_URL).then(r => (r.ok ? r.json() : null)).catch(() => null),
+    ]);
+    state.events = evRes;
+    state.eraCount = erasRes && erasRes.eras ? erasRes.eras.length : 0;
+  } catch (err) {
+    app.innerHTML = '';
+    renderError(err);
+    return;
+  }
+  lastRouteKey = null;
+  route();
+}
+window.addEventListener('hashchange', route);
+boot();
+</script>
+</body>
+</html>
