@@ -29,8 +29,9 @@ public class DataStore {
     public record Event(int year, String name, String cat, int importance, String desc, String place) {}
 
     public record Cached(byte[] body, long mtime, long size) {
+        /** 弱 ETag：由 size+mtime 推导而非字节哈希；且强 ETag 会让 Tomcat 拒绝 gzip 压缩 */
         public String etag() {
-            return "\"" + Long.toHexString(size) + "-" + Long.toHexString(mtime) + "\"";
+            return "W/\"" + Long.toHexString(size) + "-" + Long.toHexString(mtime) + "\"";
         }
     }
 
