@@ -1543,6 +1543,14 @@ function drawEndFade(W, H) {
 
 function drawAxis(axisY, W, H) {
   ctx.save();
+  // 主轴底光：轴线上下一线辉光，像灯下钤出的金痕
+  const glow = ctx.createLinearGradient(0, axisY - 5, 0, axisY + 5);
+  glow.addColorStop(0, 'rgba(201,162,75,0)');
+  glow.addColorStop(.5, 'rgba(201,162,75,.08)');
+  glow.addColorStop(1, 'rgba(201,162,75,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, axisY - 5, W, 10);
+
   // 主轴：两端淡出的鎏金渐变线
   const axisGrad = ctx.createLinearGradient(0, 0, W, 0);
   axisGrad.addColorStop(0, 'rgba(201,162,75,0)');
@@ -1604,6 +1612,23 @@ function drawTicks(yL, yR, step, axisY, kind, W) {
       drawLabel = true;
       labelFont = '600 13px Georgia, "Noto Serif SC", "Songti SC", SimSun, serif';
       labelColor = 'rgba(233,204,133,.9)';
+
+      // 世纪界碑：轴下渐隐竖带 + 刻线顶端小菱形界顶（与中央准星同语言）
+      const bp = ctx.createLinearGradient(0, axisY, 0, H - 12);
+      bp.addColorStop(0, 'rgba(201,162,75,.10)');
+      bp.addColorStop(1, 'rgba(201,162,75,0)');
+      ctx.strokeStyle = bp;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(sx + .5, axisY + 2);
+      ctx.lineTo(sx + .5, H - 12);
+      ctx.stroke();
+      ctx.save();
+      ctx.translate(sx, axisY - len - 3);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillStyle = 'rgba(233,204,133,.8)';
+      ctx.fillRect(-2.2, -2.2, 4.4, 4.4);
+      ctx.restore();
     } else if (kind === 'mid') {
       len = 12; color = 'rgba(180,192,216,.35)'; lw = 1;
       drawLabel = (state.pixelsPerYear >= 0.4);
@@ -1715,9 +1740,12 @@ function drawEvents(axisY, W, H) {
       const h = Math.min(15, 5 + e.importance * 3);
 
       // 事件在时间轴上以竖线标记（详情统一走右侧事件栏，不再渲染圆点球）
+      // ★3 大事用鎏金刻线，与世纪界碑同辉；其余冷灰
       ctx.strokeStyle = isHover || isSel
         ? cat.color
-        : `rgba(205,214,232,${0.28 + e.importance * 0.1})`;
+        : (e.importance === 3
+            ? 'rgba(233,204,133,.55)'
+            : `rgba(205,214,232,${0.28 + e.importance * 0.1})`);
       ctx.lineWidth = (isHover || isSel) ? 2 : 1;
       ctx.beginPath();
       ctx.moveTo(baseX, axisY - h);
@@ -1818,7 +1846,12 @@ function renderMinimap() {
   miniCtx.stroke();
 
   const axisY = H * 0.5;
-  miniCtx.strokeStyle = 'rgba(200,208,224,.22)';
+  const mmGrad = miniCtx.createLinearGradient(10, 0, W - 10, 0);
+  mmGrad.addColorStop(0, 'rgba(201,162,75,0)');
+  mmGrad.addColorStop(.2, 'rgba(201,162,75,.35)');
+  mmGrad.addColorStop(.8, 'rgba(201,162,75,.35)');
+  mmGrad.addColorStop(1, 'rgba(201,162,75,0)');
+  miniCtx.strokeStyle = mmGrad;
   miniCtx.beginPath();
   miniCtx.moveTo(10, axisY); miniCtx.lineTo(W - 10, axisY);
   miniCtx.stroke();
