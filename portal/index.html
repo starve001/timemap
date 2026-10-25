@@ -205,6 +205,20 @@ a { color: inherit; }
   .place .geo { margin-top: 0; margin-left: auto; }
 }
 
+/* ---------- 长卷附加区（图廊 / 舆图终章） ---------- */
+.scroll-sec { margin-top: 96px; scroll-margin-top: 84px; }
+.atlas-embed {
+  position: relative; overflow: hidden;
+  border: 1px solid var(--line-gold); border-radius: var(--r-l);
+  height: min(86vh, 920px); margin-top: 18px; background: #060910;
+  box-shadow: 0 24px 64px rgba(2,4,10,.5);
+}
+.atlas-embed iframe { width: 100%; height: 100%; border: 0; display: block; }
+.atlas-embed .veil { position: absolute; inset: 0; z-index: 2; background: #060910; display: grid; place-items: center; transition: opacity .45s ease; }
+.atlas-embed .veil .ln { width: min(52%, 460px); height: 1px; background: linear-gradient(90deg, transparent, var(--gold-hi), transparent); }
+.atlas-embed .veil.off { opacity: 0; pointer-events: none; }
+.atlas-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+
 /* ---------- 舆图层（P8 帷幕） ---------- */
 .atlas-bar { position: fixed; top: 0; left: 0; right: 0; height: 46px; z-index: 30; display: flex; align-items: center; gap: 16px; padding: 0 14px; background: rgba(10,14,23,.88); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); font-size: 12px; }
 .atlas-bar .byr { font-family: var(--mono); color: var(--gold-hi); letter-spacing: .08em; }
@@ -246,8 +260,8 @@ a { color: inherit; }
   <nav id="nav">
     <a href="#/" data-r="home">首页</a>
     <a href="#/archive" data-r="archive">档案馆</a>
-    <a href="#/plates" data-r="plates">图廊</a>
-    <a href="#/atlas" data-r="atlas">舆图</a>
+    <a href="#/" data-scroll="sec-gallery">图廊</a>
+    <a href="#/" data-scroll="sec-atlas">舆图</a>
   </nav>
 </header>
 <main id="app"></main>
@@ -661,6 +675,47 @@ function renderHome(events) {
     wrap.append(sectionRow(cat.name + '之部', list.length + ' 事 · 按年代', list.map(eventCard)));
   }
 
+  /* —— 长卷终章一：图版长廊（原 #/plates 并入） —— */
+  const galSec = el('section', 'scroll-sec');
+  galSec.id = 'sec-gallery';
+  const galHead = el('div', 'sec-head');
+  galHead.append(el('div', 'sec-title', '图版长廊'), el('div', 'sec-sub', 'THE PLATES · 名场面公版画作 · 点击回到事件'));
+  galSec.append(galHead, buildGalleryWall());
+  wrap.append(galSec);
+
+  /* —— 长卷终章二：舆图（影厅内嵌，滚动到此处才加载） —— */
+  const atSec = el('section', 'scroll-sec');
+  atSec.id = 'sec-atlas';
+  const atHead = el('div', 'sec-head');
+  atHead.append(el('div', 'sec-title', '舆图'), el('div', 'sec-sub', 'THE ATLAS · 时间驱动的世界史 · 拖动时间轴巡游'));
+  atSec.append(atHead);
+  const embed = el('div', 'atlas-embed');
+  const veil = el('div', 'veil');
+  veil.append(el('div', 'ln'));
+  const frame = document.createElement('iframe');
+  frame.title = 'MAPDEX 时序舆图';
+  frame.dataset.src = ATLAS_BASE + '#y=1';
+  frame.addEventListener('load', () => setTimeout(() => veil.classList.add('off'), 450));
+  embed.append(frame, veil);
+  atSec.append(embed);
+  const acts = el('div', 'atlas-actions');
+  const full = el('a', 'btn primary', '全屏进入舆图'); full.href = '#/atlas';
+  const aiBtn = el('button', 'btn', 'AI 问史');
+  aiBtn.addEventListener('click', () => {
+    if (frame.contentWindow) frame.contentWindow.postMessage({ source: 'mapdex-portal', type: 'ai' }, '*');
+  });
+  acts.append(full, aiBtn);
+  atSec.append(acts);
+  wrap.append(atSec);
+
+  /* 懒加载：舆图进入视口前 500px 才挂 src，避免长页首屏背 iframe 拖累 */
+  const io = new IntersectionObserver((ents) => {
+    for (const en of ents) {
+      if (en.isIntersecting) { frame.src = frame.dataset.src; io.disconnect(); }
+    }
+  }, { rootMargin: '500px' });
+  io.observe(embed);
+
   app.append(wrap);
 }
 
@@ -786,15 +841,8 @@ function renderEvent(events, id) {
 }
 
 /* P6 补充：图版长廊——名场面集中陈列 */
-function renderPlates() {
-  document.title = '图版长廊 · MAPDEX';
-  const wrap = el('div', 'wrap');
-  const hero = el('div', 'hero');
-  hero.style.padding = '7vh 0 0';
-  hero.append(el('div', 'kicker', 'THE PLATES · 名场面图版'));
-  hero.append(el('h1', null, '图版长廊'));
-  hero.append(el('p', 'sub', '历史名场面的公版画作，沉在暗厅里。点击画面回到对应事件。'));
-  wrap.append(hero);
+/* 图廊墙（长卷内嵌用）：21 帧名场面按年代纵排 */
+function buildGalleryWall() {
   const wall = el('div', 'gallery');
   const entries = Object.entries(PLATES.event)
     .map(([id, p]) => ({ id: Number(id), p }))
@@ -822,8 +870,7 @@ function renderPlates() {
     fig.append(cap);
     wall.append(fig);
   }
-  wrap.append(wall);
-  app.append(wrap);
+  return wall;
 }
 
 function renderAtlas(q) {
@@ -913,14 +960,21 @@ function parseRoute() {
   return { seg: path.split('/').filter(Boolean), query: new URLSearchParams(qi >= 0 ? h.slice(qi + 1) : '') };
 }
 
+let pendingScroll = null; // 跨路由的锚点滚动目标（图廊/舆图在长卷内）
+
+function smoothTo(id) {
+  const node = document.getElementById(id);
+  if (node) node.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
+}
+
 function route() {
   const { seg, query } = parseRoute();
   const key = location.hash || '#/';
   if (key === lastRouteKey) return;
   lastRouteKey = key;
   const r0 = seg[0] || '';
-  const top = r0 || 'home';
-  if (prevTop === 'home' || prevTop === 'archive' || prevTop === 'plates') saveScroll(prevTop);
+  const top = r0 === 'plates' ? 'home' : (r0 || 'home'); // 图廊已并入长卷
+  if (prevTop === 'home' || prevTop === 'archive') saveScroll(prevTop);
 
   app.innerHTML = '';
   document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.r === top));
@@ -929,11 +983,21 @@ function route() {
   let restored = false;
   if (r0 === 'archive') { renderArchive(state.events); restored = restoreScroll('archive'); }
   else if (r0 === 'event') renderEvent(state.events, parseInt(seg[1], 10));
-  else if (r0 === 'plates') { renderPlates(); restored = restoreScroll('plates'); }
   else if (r0 === 'atlas') renderAtlas(query);
-  else { renderHome(state.events); restored = restoreScroll('home'); }
+  else {
+    renderHome(state.events);
+    restored = restoreScroll('home');
+    /* 旧链 #/plates 兼容：并入长卷后重写到 #/ 并滚至图廊锚点 */
+    if (r0 === 'plates') {
+      history.replaceState(null, '', '#/');
+      lastRouteKey = '#/';
+      pendingScroll = 'sec-gallery';
+      restored = true; // 不回顶，交给锚点滚动
+    }
+  }
   if (!restored) window.scrollTo(0, 0); // 详情→详情等同页跳转也回顶；恢复态由 restoreScroll 兜住
   prevTop = top;
+  if (pendingScroll) { const t = pendingScroll; pendingScroll = null; requestAnimationFrame(() => smoothTo(t)); }
 }
 
 async function boot() {
@@ -955,6 +1019,16 @@ async function boot() {
   route();
 }
 window.addEventListener('hashchange', route);
+/* 导航「图廊/舆图」：长卷内锚点平滑滚动；不在长卷页时先回 #/ 再滚 */
+document.querySelectorAll('#nav a[data-scroll]').forEach(a => {
+  a.addEventListener('click', (e) => {
+    e.preventDefault();
+    const id = a.dataset.scroll;
+    const onHome = (location.hash || '#/') === '#/' || location.hash.startsWith('#/plates');
+    if (onHome && state.events && document.getElementById(id)) smoothTo(id);
+    else { pendingScroll = id; location.hash = '#/'; }
+  });
+});
 boot();
 </script>
 </body>
