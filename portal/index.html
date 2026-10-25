@@ -192,8 +192,6 @@ a { color: inherit; }
 .seal-mini { width: 26px; height: 26px; border-radius: 50%; border: 1px solid rgba(168,67,58,.7); color: #D08A7E; display: inline-flex; align-items: center; justify-content: center; font-family: var(--serif); font-size: 13px; flex: 0 0 auto; }
 .detail .people { margin: 24px 0 6px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .detail .people .lbl { font-size: 11px; color: var(--t4); letter-spacing: .2em; margin-right: 4px; }
-.grat { clear: both; margin: 30px 0; border: 1px solid var(--line); border-radius: var(--r-m); overflow: hidden; }
-.grat svg { display: block; width: 100%; height: auto; }
 /* P7：同期小标题左金竖线 */
 .detail .sec-title { border-left: 1px solid var(--line-gold); padding-left: 12px; }
 .detail .sec-title::before { display: none; }
@@ -476,27 +474,6 @@ function heroAxisSVG(events) {
   </svg>`;
 }
 
-function graticuleSVG(e) {
-  const W = 720, Hh = 340;
-  const gx = (lng) => ((lng + 180) / 360) * W;
-  const gy = (lat) => ((90 - lat) / 180) * Hh;
-  let grid = '';
-  for (let lng = -150; lng <= 180; lng += 30) {
-    grid += `<line x1="${gx(lng).toFixed(1)}" y1="0" x2="${gx(lng).toFixed(1)}" y2="${Hh}" stroke="rgba(255,255,255,.05)" stroke-width="1"/>`;
-  }
-  for (let lat = -60; lat <= 90; lat += 30) {
-    grid += `<line x1="0" y1="${gy(lat).toFixed(1)}" x2="${W}" y2="${gy(lat).toFixed(1)}" stroke="rgba(255,255,255,.05)" stroke-width="1"/>`;
-  }
-  const px = gx(e.lng).toFixed(1), py = gy(e.lat).toFixed(1);
-  return `<svg viewBox="0 0 ${W} ${Hh}" aria-hidden="true">
-    <rect width="${W}" height="${Hh}" fill="rgba(8,11,19,.6)"/>${grid}
-    <line x1="0" y1="${gy(0).toFixed(1)}" x2="${W}" y2="${gy(0).toFixed(1)}" stroke="rgba(201,162,75,.25)" stroke-width="1"/>
-    <circle cx="${px}" cy="${py}" r="10" fill="none" stroke="#C9A24B" stroke-opacity=".35"/>
-    <circle cx="${px}" cy="${py}" r="4" fill="#E9CC85"/>
-    <text x="${(Number(px) + 14).toFixed(1)}" y="${(Number(py) - 10).toFixed(1)}" font-family="SF Mono,Consolas,monospace" font-size="12" fill="#E9CC85">${e.lng.toFixed(1)}, ${e.lat.toFixed(1)}</text>
-  </svg>`;
-}
-
 /* P5：章节事件密度带 */
 function densityBand(list) {
   const W = 1000, H = 28;
@@ -768,11 +745,6 @@ function renderEvent(events, id) {
     pc.append(el('span', 'pn', e.place));
     if (typeof e.lng === 'number') pc.append(el('span', 'geo', `${e.lng.toFixed(2)}°E · ${e.lat.toFixed(2)}°N`));
     wrap.append(pc);
-  }
-  if (typeof e.lng === 'number') {
-    const g = el('div', 'grat');
-    g.innerHTML = graticuleSVG(e);
-    wrap.append(g);
   }
 
   const rel = events
