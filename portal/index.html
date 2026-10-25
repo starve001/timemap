@@ -397,23 +397,22 @@ function todayEvent(events) {
   return pool[dayIndex];
 }
 
-/* 同期对照配对：|Δyear|≤30、importance≥2、跨东西半球（lng 50 分界） */
+/* 同期对照：人工精选八组经典对垒（东在左、西在右，键 = 事件 _id）。
+   算法配对（Δyear≤30 自动贪心）会出现冷门组合，改为白名单保证每组都有故事可讲 */
+const CURATED_PAIRS = [
+  [29, 28],   // 王莽建新(9)        ↔ 耶稣诞生(前4)         两大纪元交错
+  [66, 68],   // 淝水之战(383)      ↔ 罗马帝国东西分裂(395)  东西帝国的分岔口
+  [93, 91],   // 玄奘西行(629)      ↔ 伊斯兰历元年(622)      丝绸之路上相向而行
+  [136, 135], // 王安石变法(1069)   ↔ 诺曼征服(1066)        同代的东西制度重塑
+  [141, 138], // 靖康之变(1127)     ↔ 十字军攻克耶路撒冷(1099) 铁与火的时代
+  [158, 154], // 崖山海战(1279)     ↔ 蒙古攻陷巴格达(1258)  蒙古铁蹄下的两座都城
+  [173, 174], // 土木堡之变(1449)   ↔ 君士坦丁堡陷落(1453)  帝国的黄昏同时降临
+  [193, 191], // 明朝灭亡(1644)     ↔ 三十年战争爆发(1618)  旧秩序的崩解
+];
 function buildPairs(events) {
-  const cand = events.filter(e => e.importance >= 2 && typeof e.lng === 'number');
-  const used = new Set();
-  const pairs = [];
-  for (const e of cand) {
-    if (used.has(e)) continue;
-    let best = null, bestD = 31;
-    for (const f of cand) {
-      if (f === e || used.has(f)) continue;
-      if ((f.lng >= 50) === (e.lng >= 50)) continue;
-      const d = Math.abs(f.year - e.year);
-      if (d <= 30 && d < bestD) { best = f; bestD = d; }
-    }
-    if (best) { used.add(e); used.add(best); pairs.push([e, best]); }
-  }
-  return pairs.slice(0, 8);
+  return CURATED_PAIRS
+    .map(([a, b]) => [events[a], events[b]])
+    .filter(([a, b]) => a && b);
 }
 
 function countUp(node, target, quiet) {
@@ -628,7 +627,7 @@ function renderHome(events) {
   /* 同期对照 */
   const pairs = buildPairs(events);
   if (pairs.length) {
-    wrap.append(sectionRow('同期对照', '同一时代的东西方 · Δyear ≤ 30', pairs.map(pairCard)));
+    wrap.append(sectionRow('同期对照', '同一时代的东西方 · 精选八组', pairs.map(pairCard)));
   }
 
   /* 世纪群像 */
