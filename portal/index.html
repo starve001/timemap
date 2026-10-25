@@ -8,6 +8,7 @@
 <meta name="theme-color" content="#0A0E17" />
 <meta property="og:title" content="MAPDEX 门户 · 世界历史策展" />
 <meta property="og:description" content="公元前 221 — 公元 1918，2139 年，224 个改变世界的瞬间。策展式阅读，一键进入时序舆图。" />
+<meta property="og:image" content="https://starve001.github.io/timemap/bg/kunyu.jpg" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='4.8' y='4.8' width='6.4' height='6.4' fill='%23C9A24B' transform='rotate(45 8 8)'/%3E%3C/svg%3E" />
 <!--
   MAPDEX 门户（影院大堂）。可替换处：
@@ -207,6 +208,36 @@ a { color: inherit; }
 
 /* ---------- 长卷附加区（图廊 / 舆图终章） ---------- */
 .scroll-sec { margin-top: 96px; scroll-margin-top: 84px; }
+/* 图廊双列瀑布：横竖画幅错落成墙，篇幅较单列减半 */
+.gallery { columns: 2; column-gap: 26px; }
+.gallery .plate { break-inside: avoid; -webkit-column-break-inside: avoid; margin: 0 0 26px; }
+.gp .ph { cursor: pointer; transition: filter .3s ease; }
+.gp:hover .ph img { filter: brightness(.92) contrast(.97) sepia(.16) saturate(.9); }
+.gp-cap { font-size: 12px; color: var(--t3); letter-spacing: .06em; margin-top: 10px; font-family: var(--serif); line-height: 1.7; }
+.gp-paint { display: block; transition: color .25s; }
+.gp:hover .gp-paint { color: var(--gold-hi); }
+.gp-ev { color: var(--t4); text-decoration: none; }
+.gp-ev:hover { color: var(--gold-hi); }
+@media (max-width: 760px) { .gallery { columns: 1; } }
+
+/* 滚动时间金线：长卷滚动进度 = 前221 → 1918 的时间推进 */
+.scrollaxis {
+  position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
+  pointer-events: none; overflow: visible; display: none;
+}
+.scrollaxis.on { display: block; }
+.scrollaxis .bar {
+  position: absolute; left: 0; top: 0; height: 1px; width: 100%;
+  background: linear-gradient(90deg, rgba(201,162,75,.25), var(--gold-hi));
+  transform-origin: 0 50%; transform: scaleX(0);
+  transition: transform .14s linear;
+}
+.scrollaxis .yr {
+  position: absolute; right: 0; bottom: 3px;
+  font-family: var(--mono); font-size: 10px; color: var(--gold);
+  letter-spacing: .08em; opacity: .9; text-shadow: 0 1px 4px rgba(6,9,16,.9);
+}
+
 .atlas-embed {
   position: relative; overflow: hidden;
   border: 1px solid var(--line-gold); border-radius: var(--r-l);
@@ -263,6 +294,7 @@ a { color: inherit; }
     <a href="#/" data-scroll="sec-gallery">图廊</a>
     <a href="#/" data-scroll="sec-atlas">舆图</a>
   </nav>
+  <div class="scrollaxis" id="scrollaxis" aria-hidden="true"><div class="bar"></div><div class="yr"></div></div>
 </header>
 <main id="app"></main>
 <noscript>门户需要启用 JavaScript 才能调取史料数据。</noscript>
@@ -840,8 +872,6 @@ function renderEvent(events, id) {
   app.append(wrap);
 }
 
-/* P6 补充：图版长廊——名场面集中陈列 */
-/* 图廊墙（长卷内嵌用）：21 帧名场面按年代纵排 */
 function buildGalleryWall() {
   const wall = el('div', 'gallery');
   const entries = Object.entries(PLATES.event)
@@ -998,6 +1028,9 @@ function route() {
   if (!restored) window.scrollTo(0, 0); // 详情→详情等同页跳转也回顶；恢复态由 restoreScroll 兜住
   prevTop = top;
   if (pendingScroll) { const t = pendingScroll; pendingScroll = null; requestAnimationFrame(() => smoothTo(t)); }
+  /* 滚动时间金线：仅长卷页显示 */
+  document.getElementById('scrollaxis').classList.toggle('on', !!document.getElementById('sec-atlas'));
+  updateScrollAxis();
 }
 
 async function boot() {
@@ -1019,6 +1052,34 @@ async function boot() {
   route();
 }
 window.addEventListener('hashchange', route);
+
+/* 滚动时间金线：长卷滚动进度 = 前 221 → 1918 的时间推进（叙事映射） */
+const axisEl = document.getElementById('scrollaxis');
+const axisBar = axisEl.querySelector('.bar');
+const axisYr = axisEl.querySelector('.yr');
+function updateScrollAxis() {
+  const doc = document.documentElement;
+  const max = Math.max(1, doc.scrollHeight - window.innerHeight);
+  const p = Math.min(1, Math.max(0, window.scrollY / max));
+  axisBar.style.transform = `scaleX(${p})`;
+  const y = Math.round(-221 + p * (MAX_YEAR - MIN_YEAR));
+  axisYr.textContent = y < 0 ? `公元前 ${-y}` : `公元 ${y}`;
+}
+let axisTimer = 0;
+window.addEventListener('scroll', () => {
+  if (!axisEl.classList.contains('on')) return;
+  clearTimeout(axisTimer);
+  axisTimer = setTimeout(updateScrollAxis, 40);
+}, { passive: true });
+/* 轮询兜底：部分内嵌环境程序化滚动不派发 scroll 事件；
+   值不变时零开销，CSS 过渡负责平滑 */
+let axisLastY = -1;
+setInterval(() => {
+  if (!axisEl.classList.contains('on')) return;
+  if (window.scrollY === axisLastY) return;
+  axisLastY = window.scrollY;
+  updateScrollAxis();
+}, 100);
 /* 导航「图廊/舆图」：长卷内锚点平滑滚动；不在长卷页时先回 #/ 再滚 */
 document.querySelectorAll('#nav a[data-scroll]').forEach(a => {
   a.addEventListener('click', (e) => {
