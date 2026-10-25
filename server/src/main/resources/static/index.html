@@ -1461,6 +1461,9 @@ function resizeCanvas() {
   if (state._firstResize !== false) {
     const target = state.cw / TOTAL_YEARS;
     state.pixelsPerYear = clamp(target, state.minPpy, state.maxPpy);
+    // 完全全跨度：避免内容只比视口宽 1~3px 的「伪全跨度」把拖拽
+    // 卡死在 scrollLeft 死区（表现为时间轴拖不动）
+    if (maxScroll() > 0 && maxScroll() < 8) state.pixelsPerYear = target * 0.995;
     state.scrollLeft = 0;
     state._firstResize = false;
   }
@@ -1994,7 +1997,7 @@ function start() {
     if (state.dragging) {
       state.hoverX = null;
       const dx = pointerStart.x - mx;
-      if (maxScroll() < 1) {
+      if (maxScroll() < 8) {
         // 全跨度视图：无滚动余量，横向拖拽 = 直接拨动年份（1px ≈ 1/ppy 年）
         state.viewYear = clamp(
           (state.viewYear !== null ? state.viewYear : centerYear()) - dx / Math.max(0.05, state.pixelsPerYear),
@@ -2215,7 +2218,7 @@ function start() {
       cancelAnim();
       const step = (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 10 : 1);
       const y = clamp(Math.round(currentYear()) + step, MIN_YEAR, MAX_YEAR);
-      if (maxScroll() < 1) state.viewYear = y;
+      if (maxScroll() < 8) state.viewYear = y;
       else state.scrollLeft = clamp(yearToPx(y) - state.cw / 2, 0, maxScroll());
       state.highlightYear = y;
       state.highlightUntil = performance.now() + 900;
@@ -2264,7 +2267,7 @@ function applyHashOnLoad() {
 function applyHashStartYear() {
   if (state._hashStartYear === undefined) return;
   const y = clamp(state._hashStartYear, MIN_YEAR, MAX_YEAR);
-  if (maxScroll() < 1) state.viewYear = y; // 全跨度视图：由 viewYear 驱动
+  if (maxScroll() < 8) state.viewYear = y; // 全跨度视图：由 viewYear 驱动
   else state.scrollLeft = clamp(yearToPx(y) - state.cw / 2, 0, maxScroll());
   state._hashStartYear = undefined;
 }
@@ -2610,7 +2613,7 @@ function goToYear(year, fitToDecade) {
   state.highlightUntil = performance.now() + 1800;
 
   // 全跨度视图下时间轴无法滚动：直接用 viewYear 驱动徽章与地图
-  if (maxScroll() < 1) {
+  if (maxScroll() < 8) {
     state.viewYear = year;
     cancelAnim();
     requestRender();

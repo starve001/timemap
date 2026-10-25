@@ -23,10 +23,26 @@ fs.rmSync(SITE, { recursive: true, force: true });
 fs.mkdirSync(path.join(API, 'eras'), { recursive: true });
 fs.mkdirSync(path.join(API, 'ai'), { recursive: true });
 
-// 页面本体（单一来源：Spring Boot 打包用的同一份 index.html）
+// 页面：舆图本体放 app/（门户 iframe 与直连均可达），
+// 根路径 index.html 是智能跳板 —— GitHub 上只有一个门面（门户），
+// 旧的 #y=<年>&map=<z>/<经>/<纬> 深链自动转换为门户全屏舆图深链
+fs.mkdirSync(path.join(SITE, 'app'), { recursive: true });
 fs.copyFileSync(
   path.join(ROOT, 'server/src/main/resources/static/index.html'),
-  path.join(SITE, 'index.html'));
+  path.join(SITE, 'app', 'index.html'));
+fs.writeFileSync(path.join(SITE, 'index.html'), `<!DOCTYPE html>
+<meta charset="UTF-8">
+<title>MAPDEX · 时序地图</title>
+<script>
+(function () {
+  var h = location.hash.replace(/^#/, '');
+  var m = h.match(/y=(-?\\d+)&map=([\\d.]+)\\/(-?[\\d.]+)\\/(-?[\\d.]+)/);
+  var to = 'portal/';
+  if (m) to = 'portal/#/atlas?y=' + m[1] + '&lng=' + m[3] + '&lat=' + m[4] + '&z=' + m[2];
+  location.replace(to);
+})();
+</script>
+`);
 
 // REST API → 静态文件
 fs.copyFileSync(path.join(ROOT, 'events.json'), path.join(API, 'events'));

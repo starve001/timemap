@@ -2,10 +2,11 @@
 
 一个交互式**世界历史地图**：拖动时间轴即可查看从公元前 221 年到公元 1918 年的全球政权版图演变，并同步呈现同期历史事件。全部政权中文标注、可追溯数据源。
 
-**🌐 在线预览（GitHub Pages）**：<https://starve001.github.io/timemap/>
+**🌐 在线入口（GitHub Pages）**：<https://starve001.github.io/timemap/> —— 自动进入策展门户
 
-- **策展门户（影院大堂）**：<https://starve001.github.io/timemap/portal/> —— 编辑化图文叙事（今日之史 / 时代档案馆 / 事件详情），「入舆图」深链进地图
-- **时序舆图（影厅）**：<https://starve001.github.io/timemap/> —— 本页即完整交互地图
+- **策展门户（唯一门面）**：<https://starve001.github.io/timemap/portal/> —— 纵向长卷：首页（今日之史 / 同期对照 / 分类卡带）→ 图版长廊 → 舆图终章；另有时代档案馆与事件详情页
+- **舆图本体**：<https://starve001.github.io/timemap/app/> —— 完整交互地图（门户 iframe 与「全屏进入」使用的本体）
+- 根路径 `/timemap/` 为智能跳板：老深链 `#y=<年>&map=<z>/<经>/<纬>` 自动转换为门户全屏舆图
 
 > Pages 版为纯静态部署（`tools/build-pages.js` 把 REST API 镜像为静态文件，推送 main 后由 GitHub Actions 自动发布）。时间轴、版图、事件全部可用；AI 助手依赖本地后端，在线版会提示不可用。门户可用 postMessage 驱动舆图：`{source:'mapdex-portal', type:'goto', year, lng, lat}` / `{type:'ai'}`。
 

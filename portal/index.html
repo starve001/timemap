@@ -106,6 +106,17 @@ a { color: inherit; }
 .today.no-plate > * { position: relative; z-index: 1; }
 .today.no-plate .today-sketch { position: absolute; z-index: 0; }
 .today .tag { font-family: var(--mono); font-size: 10px; color: var(--t4); letter-spacing: .3em; }
+.today .tag-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.today .pager { display: inline-flex; align-items: center; gap: 8px; }
+.today .pager .pg {
+  width: 24px; height: 24px; border-radius: 50%;
+  background: rgba(255,255,255,.03); border: 1px solid var(--line);
+  color: var(--t3); font-size: 14px; line-height: 1; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: color .15s, border-color .15s;
+}
+.today .pager .pg:hover { color: var(--gold-hi); border-color: var(--line-gold); }
+.today .pager .pg-pos { font-family: var(--mono); font-size: 10px; color: var(--t4); letter-spacing: .1em; }
 .today .giant { font-family: var(--serif); color: var(--gold-hi); font-size: clamp(54px, 9.5vw, 118px); font-weight: 600; line-height: 1; letter-spacing: .02em; margin: 12px 0 6px; font-variant-numeric: tabular-nums; }
 .today .giant .era { font-size: .3em; color: var(--t3); letter-spacing: .3em; margin-right: 12px; }
 .today .nm { font-family: var(--serif); font-size: clamp(19px, 2.6vw, 27px); color: var(--t1); margin-bottom: 12px; line-height: 1.5; }
@@ -311,7 +322,7 @@ a { color: inherit; }
    门户独立部署时改为 'https://starve001.github.io/timemap/api/events' */
 const DATA_URL = '../api/events';
 const ERAS_URL = '../api/eras/index.json';
-const ATLAS_BASE = '../';
+const ATLAS_BASE = '../app/';
 const MIN_YEAR = -221, MAX_YEAR = 1918;
 const CATS = [
   { key: 'politics', name: '政治', color: '#C9A24B' },
@@ -435,12 +446,67 @@ function atlasHash(e, zoom) {
 }
 function gotoAtlas(e, zoom) { location.hash = atlasHash(e, zoom); }
 
-/* [可替换 2] 「今日之史」选段策略：importance=3 池 + 日期哈希，同一天恒定 */
+/* [可替换 2] 「今日之史」选段策略：importance=3 池 + 日期哈希，同一天恒定；
+   ‹ › 可在池内前后翻页（翻页仅本次会话内记忆，不影响他人） */
+let todayIdxCache = -1;
 function todayEvent(events) {
   const pool = events.filter(e => e.importance === 3);
   if (!pool.length) return null;
-  const dayIndex = Math.floor(Date.now() / 86400000) % pool.length;
-  return pool[dayIndex];
+  if (todayIdxCache < 0) todayIdxCache = Math.floor(Date.now() / 86400000) % pool.length;
+  return pool[todayIdxCache];
+}
+function buildTodayCard(events) {
+  const pool = events.filter(e => e.importance === 3);
+  if (!pool.length) return null;
+  if (todayIdxCache < 0) todayIdxCache = Math.floor(Date.now() / 86400000) % pool.length;
+  const t = pool[todayIdxCache];
+
+  const card = el('section', 'today');
+  const p = PLATES.event[t._id];
+  const main = el('div', 'today-main');
+  card.append(main);
+  if (p) { card.classList.add('has-plate'); card.append(plateFigure(p, 'r45')); }
+  else {
+    card.classList.add('no-plate');
+    const sk = el('div', 'today-sketch');
+    sk.setAttribute('aria-hidden', 'true');
+    sk.innerHTML = SKETCHES[t.cat] || SKETCHES.politics;
+    card.append(sk);
+  }
+  /* 标题行 + 池内翻页 */
+  const tagRow = el('div', 'tag-row');
+  tagRow.append(el('span', 'tag', 'TODAY IN HISTORY · 今日之史'));
+  const pager = el('span', 'pager');
+  const prev = el('button', 'pg', '‹'); prev.title = '上一件大事';
+  const pos = el('span', 'pg-pos', `${todayIdxCache + 1} / ${pool.length}`);
+  const next = el('button', 'pg', '›'); next.title = '下一件大事';
+  const flip = (d) => {
+    todayIdxCache = (todayIdxCache + d + pool.length) % pool.length;
+    card.replaceWith(buildTodayCard(events));
+  };
+  prev.addEventListener('click', () => flip(-1));
+  next.addEventListener('click', () => flip(1));
+  pager.append(prev, pos, next);
+  tagRow.append(pager);
+  main.append(tagRow);
+
+  const giant = el('div', 'giant');
+  giant.append(el('span', 'era', t.year < 0 ? '公元前' : '公元'), el('span', null, String(Math.abs(t.year))));
+  main.append(giant);
+  main.append(el('div', 'nm', t.name));
+  if (t.desc) main.append(el('div', 'desc', t.desc));
+  if (t.people && t.people.length) {
+    const pp = el('div', 'people');
+    pp.append(el('span', 'chip', '相关人物'));
+    t.people.forEach(x => pp.append(el('span', 'chip', x)));
+    main.append(pp);
+  }
+  const tc = el('div', 'ctas');
+  const read = el('a', 'btn', '读全篇'); read.href = '#/event/' + t._id;
+  const map = el('a', 'btn primary', '入舆图 · 定位此处'); map.href = atlasHash(t);
+  tc.append(read, map);
+  main.append(tc);
+  return card;
 }
 
 /* 同期对照：人工精选八组经典对垒（东在左、西在右，键 = 事件 _id）。
@@ -621,40 +687,9 @@ function renderHome(events) {
   hero.append(axis);
   wrap.append(hero);
 
-  /* 今日之史（P6③：右侧 4:5 图版） */
-  const t = todayEvent(events);
-  if (t) {
-    const card = el('section', 'today');
-    const p = PLATES.event[t._id];
-    const main = el('div', 'today-main');
-    card.append(main);
-    if (p) { card.classList.add('has-plate'); card.append(plateFigure(p, 'r45')); }
-    else {
-      card.classList.add('no-plate');
-      const sk = el('div', 'today-sketch');
-      sk.setAttribute('aria-hidden', 'true');
-      sk.innerHTML = SKETCHES[t.cat] || SKETCHES.politics;
-      card.append(sk);
-    }
-    main.append(el('div', 'tag', 'TODAY IN HISTORY · 今日之史'));
-    const giant = el('div', 'giant');
-    giant.append(el('span', 'era', t.year < 0 ? '公元前' : '公元'), el('span', null, String(Math.abs(t.year))));
-    main.append(giant);
-    main.append(el('div', 'nm', t.name));
-    if (t.desc) main.append(el('div', 'desc', t.desc));
-    if (t.people && t.people.length) {
-      const pp = el('div', 'people');
-      pp.append(el('span', 'chip', '相关人物'));
-      t.people.forEach(x => pp.append(el('span', 'chip', x)));
-      main.append(pp);
-    }
-    const tc = el('div', 'ctas');
-    const read = el('a', 'btn', '读全篇'); read.href = '#/event/' + t._id;
-    const map = el('a', 'btn primary', '入舆图 · 定位此处'); map.href = atlasHash(t);
-    tc.append(read, map);
-    main.append(tc);
-    wrap.append(card);
-  }
+  /* 今日之史（P6③：右侧 4:5 图版；‹ › 在大事池内翻页，今日为起点） */
+  const todayCard = buildTodayCard(events);
+  if (todayCard) wrap.append(todayCard);
 
   /* P3 统计句 */
   const statline = el('div', 'statline');
@@ -704,7 +739,7 @@ function renderHome(events) {
   for (const cat of CATS) {
     const list = events.filter(e => e.cat === cat.key).sort((a, b) => a.year - b.year);
     if (!list.length) continue;
-    wrap.append(sectionRow(cat.name + '之部', list.length + ' 事 · 按年代', list.map(eventCard)));
+    wrap.append(sectionRow(cat.name, list.length + ' 事 · 按年代', list.map(eventCard)));
   }
 
   /* —— 长卷终章一：图版长廊（原 #/plates 并入） —— */
