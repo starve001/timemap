@@ -97,6 +97,13 @@ a { color: inherit; }
 /* ---------- 今日之史（P6③：右侧 4:5 图版） ---------- */
 .today { margin-top: 54px; background: linear-gradient(180deg, var(--panel-hi), var(--panel-lo)); border: 1px solid var(--line-gold); border-radius: var(--r-l); padding: clamp(26px, 4vw, 46px); position: relative; overflow: hidden; box-shadow: 0 24px 64px rgba(2,4,10,.5), inset 0 1px 0 rgba(233,204,133,.05); }
 .today.has-plate { display: grid; grid-template-columns: 1.25fr .9fr; gap: clamp(20px, 3vw, 40px); align-items: center; }
+/* 无图版事件时，金框内垫汉画像石拓片（武梁祠，公版）作背景——像展厅绒布上的暗纹 */
+.today.no-plate::before {
+  content: ""; position: absolute; inset: 0; z-index: 0;
+  background: url('bg/relief.jpg') center / cover no-repeat;
+  opacity: .13; filter: sepia(.25) brightness(.9);
+}
+.today.no-plate > * { position: relative; z-index: 1; }
 .today .tag { font-family: var(--mono); font-size: 10px; color: var(--t4); letter-spacing: .3em; }
 .today .giant { font-family: var(--serif); color: var(--gold-hi); font-size: clamp(54px, 9.5vw, 118px); font-weight: 600; line-height: 1; letter-spacing: .02em; margin: 12px 0 6px; font-variant-numeric: tabular-nums; }
 .today .giant .era { font-size: .3em; color: var(--t3); letter-spacing: .3em; margin-right: 12px; }
@@ -553,6 +560,7 @@ function renderHome(events) {
     const main = el('div', 'today-main');
     card.append(main);
     if (p) { card.classList.add('has-plate'); card.append(plateFigure(p, 'r45')); }
+    else card.classList.add('no-plate');
     main.append(el('div', 'tag', 'TODAY IN HISTORY · 今日之史'));
     const giant = el('div', 'giant');
     giant.append(el('span', 'era', t.year < 0 ? '公元前' : '公元'), el('span', null, String(Math.abs(t.year))));
