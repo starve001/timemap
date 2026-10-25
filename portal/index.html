@@ -46,6 +46,7 @@ body::after {
   opacity: .075;
 }
 ::selection { background: rgba(201,162,75,.32); color: #fff; }
+:focus-visible { outline: 2px solid rgba(201,162,75,.6); outline-offset: 2px; border-radius: 2px; }
 a { color: inherit; }
 
 /* ---------- 顶栏 ---------- */
@@ -77,6 +78,7 @@ a { color: inherit; }
 .hero { padding: 10vh 0 4vh; }
 .kicker { font-family: var(--mono); color: var(--t4); font-size: 11px; letter-spacing: .32em; }
 .hero h1 { font-family: var(--serif); font-size: clamp(40px, 7vw, 82px); font-weight: 600; color: var(--t1); letter-spacing: .04em; margin: 16px 0 12px; line-height: 1.15; clip-path: inset(0 100% 0 0); animation: h1reveal .8s ease .15s forwards; }
+.hero h1.quiet { clip-path: none; animation: none; }
 @keyframes h1reveal { to { clip-path: inset(0 0 0 0); } }
 .hero .sub { color: var(--t3); font-size: 14px; letter-spacing: .06em; line-height: 1.8; }
 .hero .sub b { color: var(--gold-hi); font-weight: 600; }
@@ -365,6 +367,7 @@ const SKETCHES = {
 const state = { events: null, eraCount: 0 };
 const app = document.getElementById('app');
 let lastRouteKey = null;
+let homeVisited = false; // 重访首页时动效静默（首访才播绘线/滚动）
 let prevTop = null;
 
 /* ---------- 工具 ---------- */
@@ -413,8 +416,8 @@ function buildPairs(events) {
   return pairs.slice(0, 8);
 }
 
-function countUp(node, target) {
-  if (reducedMotion) { node.textContent = String(target); return; }
+function countUp(node, target, quiet) {
+  if (reducedMotion || quiet) { node.textContent = String(target); return; }
   const t0 = performance.now(), dur = 900;
   (function step(t) {
     const k = clamp((t - t0) / dur, 0, 1);
@@ -445,19 +448,20 @@ function plateFigure(p, ratioCls, capOverride) {
 }
 
 /* ---------- 静态装饰 ---------- */
-function heroAxisSVG(events) {
+function heroAxisSVG(events, quiet) {
   const W = 1000, H = 110, x0 = 14, x1 = W - 14, mid = H / 2;
   const X = y => x0 + (y - MIN_YEAR) / (MAX_YEAR - MIN_YEAR) * (x1 - x0);
   let dots = '';
+  const still = reducedMotion || quiet; // 静态终态：reduced-motion 或重访首页
   for (const e of events) {
     if (e.importance < 2) continue;
     const o = e.year < 0 ? '.35' : '.75';
     const r = e.importance === 3 ? 3.2 : 2;
     const d = (0.2 + (X(e.year) - x0) / (x1 - x0) * 1.4).toFixed(2);
-    dots += `<circle cx="${X(e.year).toFixed(1)}" cy="${mid}" r="${r}" fill="#E9CC85" opacity="0" style="--o:${o};--d:${d}s"><title>${yearToStr(e.year)} · ${e.name}</title></circle>`;
+    dots += `<circle cx="${X(e.year).toFixed(1)}" cy="${mid}" r="${r}" fill="#E9CC85" opacity="${still ? o : 0}"${still ? '' : ` style="--o:${o};--d:${d}s"`}><title>${yearToStr(e.year)} · ${e.name}</title></circle>`;
   }
-  const lineCls = reducedMotion ? '' : ' class="ax-line"';
-  const dash = reducedMotion ? '' : ' stroke-dasharray="1000" stroke-dashoffset="1000"';
+  const lineCls = still ? '' : ' class="ax-line"';
+  const dash = still ? '' : ' stroke-dasharray="1000" stroke-dashoffset="1000"';
   return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
     <defs><linearGradient id="ax" x1="0" x2="1">
       <stop offset="0" stop-color="#C9A24B" stop-opacity=".12"/>
@@ -548,12 +552,16 @@ function starStr(im) { return im === 3 ? '★★★' : im === 2 ? '★★' : '�
 /* ---------- 路由渲染 ---------- */
 function renderHome(events) {
   document.title = 'MAPDEX 门户 · 世界历史策展';
+  const quiet = homeVisited; // 重访静默
+  homeVisited = true;
   const wrap = el('div', 'wrap');
 
   /* Hero */
   const hero = el('section', 'hero');
   hero.append(el('div', 'kicker', 'TEMPORAL ATLAS · CINEMATIC PORTAL'));
-  hero.append(el('h1', null, 'MAPDEX · 时序地图'));
+  const h1 = el('h1', null, 'MAPDEX · 时序地图');
+  if (quiet) h1.classList.add('quiet');
+  hero.append(h1);
   const evCount = events.length;
   const sub = el('p', 'sub');
   sub.append('从', el('b', null, '公元前 221 — 公元 1918'), '，', el('b', null, '2139 年'), '，', el('b', null, `${evCount} 个改变世界的瞬间`), '。这里是它们的大堂——展厅在深处。');
@@ -564,7 +572,7 @@ function renderHome(events) {
   ctas.append(ctaA, ctaB);
   hero.append(ctas);
   const axis = el('div', 'hero-axis');
-  axis.innerHTML = heroAxisSVG(events);
+  axis.innerHTML = heroAxisSVG(events, quiet);
   hero.append(axis);
   wrap.append(hero);
 
@@ -579,6 +587,7 @@ function renderHome(events) {
     else {
       card.classList.add('no-plate');
       const sk = el('div', 'today-sketch');
+      sk.setAttribute('aria-hidden', 'true');
       sk.innerHTML = SKETCHES[t.cat] || SKETCHES.politics;
       card.append(sk);
     }
@@ -612,9 +621,9 @@ function renderHome(events) {
   const n3 = el('b', null, '0'); txt.append(n3, el('i', null, '类'));
   statline.append(txt, el('span', 'hair'));
   wrap.append(statline);
-  countUp(n1, evCount);
-  countUp(n2, state.eraCount || 39);
-  countUp(n3, CATS.length);
+  countUp(n1, evCount, quiet);
+  countUp(n2, state.eraCount || 39, quiet);
+  countUp(n3, CATS.length, quiet);
 
   /* 同期对照 */
   const pairs = buildPairs(events);
@@ -924,7 +933,7 @@ function route() {
   else if (r0 === 'plates') { renderPlates(); restored = restoreScroll('plates'); }
   else if (r0 === 'atlas') renderAtlas(query);
   else { renderHome(state.events); restored = restoreScroll('home'); }
-  if (!restored && prevTop !== top) window.scrollTo(0, 0);
+  if (!restored) window.scrollTo(0, 0); // 详情→详情等同页跳转也回顶；恢复态由 restoreScroll 兜住
   prevTop = top;
 }
 
