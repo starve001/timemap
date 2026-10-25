@@ -98,7 +98,7 @@ mapdex/
 ├── data/                    # 运行时数据
 │   ├── eras/                # 39 个版图切片（world_*.geojson）+ 中文名对照表
 │   └── cities.json          # 城市数据
-├── events.json              # 历史事件库（224 条，公元前 221 年 ~ 公元 1918 年）
+├── events.json              # 历史事件库（304 条，公元前 221 年 ~ 公元 1918 年）
 ├── tools/                   # 数据处理脚本（切片构建 / 中文名注入 / 数据校验）
 │   ├── simplify-eras.ps1    # 批量几何简化全部切片（mapshaper，默认保留 75%）
 │   └── cliopatria/          # 数据源说明（原始数据体积过大未入库，见下）
