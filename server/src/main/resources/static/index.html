@@ -1204,6 +1204,8 @@ let CITIES = [];
  * 模块二：工具函数层（Utils）
  * ============================================================ */
 const MIN_YEAR = -221, MAX_YEAR = 1918; // 秦统一 ~ 一战结束
+/* 接口基址：Pages 部署于 /app/ 子路径时用 ../api，本地 jar 根路径用 api */
+const API_BASE = /\/app\/?$/.test(location.pathname) ? '../api/' : 'api/';
 const TOTAL_YEARS = MAX_YEAR - MIN_YEAR;
 
 function yearToStr(y) {
@@ -1577,9 +1579,9 @@ function drawAxis(axisY, W, H) {
   const midStep   = Math.max(10, niceStep(60  / Math.max(1e-6, ppy)));
   const macroStep = Math.max(100, niceStep(140 / Math.max(1e-6, ppy)));
 
-  drawTicks(yL, yR, macroStep, axisY, 'macro', W);
-  drawTicks(yL, yR, midStep,   axisY, 'mid',   W);
-  drawTicks(yL, yR, microStep, axisY, 'micro', W);
+  drawTicks(yL, yR, macroStep, axisY, 'macro', W, H);
+  drawTicks(yL, yR, midStep,   axisY, 'mid',   W, H);
+  drawTicks(yL, yR, microStep, axisY, 'micro', W, H);
 
   if (state.highlightYear !== null && performance.now() < state.highlightUntil) {
     const sx = pxToScreenX(yearToPx(state.highlightYear));
@@ -1599,7 +1601,7 @@ function drawAxis(axisY, W, H) {
   ctx.restore();
 }
 
-function drawTicks(yL, yR, step, axisY, kind, W) {
+function drawTicks(yL, yR, step, axisY, kind, W, H) {
   let start = Math.ceil(yL / step) * step;
   if (start < MIN_YEAR) start += step;
   if (start < MIN_YEAR) start = MIN_YEAR + (Math.ceil((MIN_YEAR - start) / step)) * step;
@@ -2765,8 +2767,8 @@ function updateSuggest() {
 window.__dataReady = (async () => {
   try {
     const [ev, ci] = await Promise.all([
-      fetch('api/events').then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
-      fetch('api/cities').then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
+      fetch(API_BASE + 'events').then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
+      fetch(API_BASE + 'cities').then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
     ]);
     EVENTS = ev; CITIES = ci;
     return true;
@@ -3192,7 +3194,7 @@ if (maplibregl) {
     for (const off of [1, 2, -1, -2]) {
       const n = list[i + off];
       if (n && !eraCache.has(n.y)) {
-        const p = fetch('api/eras/' + n.y)
+        const p = fetch(API_BASE + 'eras/' + n.y)
           .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
           .catch(() => { eraCache.delete(n.y); }); // 预取失败：清缓存避免未处理的 Promise 拒绝
         eraCachePut(n.y, p);
@@ -3202,7 +3204,7 @@ if (maplibregl) {
 
   async function loadEraData(era) {
     if (eraCache.has(era.y)) return eraCache.get(era.y);
-    const p = fetch('api/eras/' + era.y)
+    const p = fetch(API_BASE + 'eras/' + era.y)
       .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
     eraCachePut(era.y, p);
     prefetchEraNeighbors(era);
@@ -3367,7 +3369,7 @@ if (maplibregl) {
       try {
         // 清单走 /api/eras/index.json：GitHub Pages 静态镜像里 api/eras 是切片目录，
         // 文件系统同名文件与目录不能共存（后端两种路径都兼容）
-        erasManifest = await (await fetch('api/eras/index.json')).json();
+        erasManifest = await (await fetch(API_BASE + 'eras/index.json')).json();
       } catch (e) {
         console.error('版图清单加载失败', e);
         btn.disabled = true;
@@ -3580,13 +3582,13 @@ if (maplibregl) {
   }
 
   function loadConfig() {
-    fetch('api/ai/config').then(function (r) { return r.json(); }).then(applyConfigView)
+    fetch(API_BASE + 'ai/config').then(function (r) { return r.json(); }).then(applyConfigView)
       .catch(function () { status.textContent = '无法读取 AI 配置'; });
   }
 
   function saveConfig(payload) {
     saveBtn.disabled = true;
-    fetch('api/ai/config', {
+    fetch(API_BASE + 'ai/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -3618,7 +3620,7 @@ if (maplibregl) {
     append('user', q);
     input.value = '';
     setBusy(true);
-    fetch('api/ai/chat', {
+    fetch(API_BASE + 'ai/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: q })
