@@ -38,6 +38,13 @@ body::before {
   content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 40; opacity: .8;
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='linear' slope='0.05'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E") repeat;
 }
+/* 氛围底图：《坤舆万国全图》利玛窦 1602（公版）——沉在一切内容之下，
+   仅作纸底压纹般的历史气息；改强度只动这里的 opacity */
+body::after {
+  content: ""; position: fixed; inset: 0; z-index: -1;
+  background: var(--bg) url('bg/kunyu.jpg') center 30% / cover no-repeat;
+  opacity: .075;
+}
 ::selection { background: rgba(201,162,75,.32); color: #fff; }
 a { color: inherit; }
 
