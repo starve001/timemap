@@ -234,6 +234,7 @@ a { color: inherit; }
   <nav id="nav">
     <a href="#/" data-r="home">首页</a>
     <a href="#/archive" data-r="archive">档案馆</a>
+    <a href="#/plates" data-r="plates">图廊</a>
     <a href="#/atlas" data-r="atlas">舆图</a>
   </nav>
 </header>
@@ -737,6 +738,47 @@ function renderEvent(events, id) {
   app.append(wrap);
 }
 
+/* P6 补充：图版长廊——名场面集中陈列 */
+function renderPlates() {
+  document.title = '图版长廊 · MAPDEX';
+  const wrap = el('div', 'wrap');
+  const hero = el('div', 'hero');
+  hero.style.padding = '7vh 0 0';
+  hero.append(el('div', 'kicker', 'THE PLATES · 名场面图版'));
+  hero.append(el('h1', null, '图版长廊'));
+  hero.append(el('p', 'sub', '历史名场面的公版画作，沉在暗厅里。点击画面回到对应事件。'));
+  wrap.append(hero);
+  const wall = el('div', 'gallery');
+  const entries = Object.entries(PLATES.event)
+    .map(([id, p]) => ({ id: Number(id), p }))
+    .filter(x => state.events[x.id])
+    .sort((a, b) => state.events[a.id].year - state.events[b.id].year);
+  for (const { id, p } of entries) {
+    const e = state.events[id];
+    const fig = el('figure', 'plate gp');
+    const ph = el('div', 'ph');
+    ph.style.aspectRatio = String(Math.min(p.w / p.h, 1.7));
+    ph.style.setProperty('--fx', (p.fx ?? 50) + '%');
+    ph.style.setProperty('--fy', (p.fy ?? 50) + '%');
+    const img = document.createElement('img');
+    img.src = p.src; img.loading = 'lazy'; img.decoding = 'async';
+    img.width = p.w; img.height = p.h; img.alt = p.cap;
+    ph.addEventListener('click', () => { location.hash = '#/event/' + id; });
+    img.addEventListener('error', () => fig.remove());
+    ph.append(img);
+    fig.append(ph);
+    const cap = el('figcaption', 'gp-cap');
+    cap.append(el('span', 'gp-paint', p.cap));
+    const link = el('a', 'gp-ev', '「' + e.name + '」· ' + yearShort(e.year) + ' →');
+    link.href = '#/event/' + id;
+    cap.append(link);
+    fig.append(cap);
+    wall.append(fig);
+  }
+  wrap.append(wall);
+  app.append(wrap);
+}
+
 function renderAtlas(q) {
   document.title = '舆图 · MAPDEX';
   const y = parseInt(q.get('y'), 10);
@@ -831,7 +873,7 @@ function route() {
   lastRouteKey = key;
   const r0 = seg[0] || '';
   const top = r0 || 'home';
-  if (prevTop === 'home' || prevTop === 'archive') saveScroll(prevTop);
+  if (prevTop === 'home' || prevTop === 'archive' || prevTop === 'plates') saveScroll(prevTop);
 
   app.innerHTML = '';
   document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.r === top));
@@ -840,6 +882,7 @@ function route() {
   let restored = false;
   if (r0 === 'archive') { renderArchive(state.events); restored = restoreScroll('archive'); }
   else if (r0 === 'event') renderEvent(state.events, parseInt(seg[1], 10));
+  else if (r0 === 'plates') { renderPlates(); restored = restoreScroll('plates'); }
   else if (r0 === 'atlas') renderAtlas(query);
   else { renderHome(state.events); restored = restoreScroll('home'); }
   if (!restored && prevTop !== top) window.scrollTo(0, 0);
