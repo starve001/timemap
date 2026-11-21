@@ -3420,14 +3420,45 @@ if (maplibregl) {
   function hideMapTip() { mapTip.classList.remove('show'); }
   const lastEraMouse = { x: 0, y: 0 };
   map.on('mousemove', (e) => { lastEraMouse.x = e.point.x; lastEraMouse.y = e.point.y; });
-  function showMapTipContent(y, n, s) {
+  function showMapTipContent(y, n, s, pt) {
     mtYear.textContent = y;
     mtName.textContent = n;
     mtPlace.textContent = s;
-    mapTip.style.left = lastEraMouse.x + 'px';
-    mapTip.style.top = lastEraMouse.y + 'px';
+    const px = pt || lastEraMouse; // 触屏点选没有前置 mousemove，位置由点击事件直接给
+    mapTip.style.left = px.x + 'px';
+    mapTip.style.top = px.y + 'px';
     mapTip.classList.add('show');
   }
+
+  /* ---------- 点选政权信息卡（触屏没有 hover，点一下固定显示）----------
+     借鉴 Chronas / patched-historical-atlas 的移动端做法：浏览态单击政权，
+     信息卡钉在点击处；再点空白处 / Esc / 拖动地图收起。勘绘台开着时让路给描图。 */
+  let tipPinned = false;
+  const unpinTip = () => { tipPinned = false; hideMapTip(); };
+  map.on('click', (e) => {
+    if (document.body.classList.contains('ed-on')) return;
+    const hits = map.getLayer('eras-fill')
+      ? map.queryRenderedFeatures(e.point, { layers: ['eras-fill'] }) : [];
+    if (!hits.length) { if (tipPinned) unpinTip(); return; }
+    const p = hits[0].properties || {};
+    const era = pickEraYear(currentYear());
+    const y2s = v => v == null ? '' : (v < 0 ? `前${-v}` : `${v}`);
+    showMapTipContent(
+      era ? `约 ${era.l} 政权疆域` : '政权疆域',
+      p._nz || zhPolityName(p.NAME) || p.NAME || '（未命名）',
+      [
+        p.start_year != null && p.end_year != null ? `存续 ${y2s(p.start_year)}–${y2s(p.end_year)} 年` : '',
+        p.capital ? `都城 ${p.capital}` : '',
+        p.wikipedia ? `Wikipedia: ${p.wikipedia}` : '',
+      ].filter(Boolean).join(' · '),
+      e.point,
+    );
+    tipPinned = true;
+  });
+  map.on('movestart', () => { if (tipPinned) unpinTip(); }); // 卡片钉在屏幕坐标上，图一动就作废
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && tipPinned) unpinTip();
+  });
 
   // 事件不在地图上渲染：交互统一走右侧事件栏（点击列表项 → goToEvent）
   map.on('moveend', () => scheduleHash());
@@ -3616,7 +3647,7 @@ if (maplibregl) {
       );
     });
     map.on('mouseleave', 'eras-fill', () => {
-      hideMapTip();
+      if (!tipPinned) hideMapTip(); // 钉住的信息卡不因鼠标离开政权而消失
     });
     }
 
