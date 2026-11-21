@@ -1,0 +1,47 @@
+name: Validate contributions
+
+# 社区贡献的入库门禁：PR 只要动了 contributions/ 下的数据就跑校验器，
+# 不合格直接 fail，合并按钮点不动。规则只写在 tools/validate-contribution.js
+# 一处，前端校勘卡的提示与它无关，改规则不用重新发版。
+on:
+  pull_request:
+    paths:
+      - 'contributions/**'
+      - 'tools/validate-contribution.js'
+      - '.github/workflows/validate-contributions.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-contributions-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 需要 base 分支的提交对象来做 diff
+          fetch-depth: 0
+
+      - name: 校验本次 PR 改动的贡献文件
+        env:
+          BASE: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          CHANGED=$(git diff --name-only "origin/${BASE}...HEAD" -- contributions || true)
+          EXIST=""
+          for f in ${CHANGED}; do
+            case "$f" in
+              *.geojson|*.json) [ -f "$f" ] && EXIST="${EXIST} ${f}" ;;
+            esac
+          done
+          if [ -z "${EXIST}" ]; then
+            echo "本次 PR 没有新增或修改 contributions/ 下的 GeoJSON，跳过校验。"
+            exit 0
+          fi
+          echo "待检：${EXIST}"
+          # shellcheck disable=SC2086
+          node tools/validate-contribution.js ${EXIST}

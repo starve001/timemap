@@ -30,6 +30,11 @@ fs.mkdirSync(path.join(SITE, 'app'), { recursive: true });
 fs.copyFileSync(
   path.join(ROOT, 'server/src/main/resources/static/index.html'),
   path.join(SITE, 'app', 'index.html'));
+// 库本体（MapLibre GL）随站分发：大陆直连 CDN 不可靠，vendor 必须进 Pages
+fs.cpSync(
+  path.join(ROOT, 'server/src/main/resources/static/vendor'),
+  path.join(SITE, 'app', 'vendor'),
+  { recursive: true });
 fs.writeFileSync(path.join(SITE, 'index.html'), `<!DOCTYPE html>
 <meta charset="UTF-8">
 <title>MAPDEX · 时序地图</title>

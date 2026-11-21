@@ -6,7 +6,7 @@
 <title>MAPDEX · 时序地图 — 时间驱动的世界历史</title>
 <meta name="description" content="MAPDEX 时序地图：以时间为轴浏览世界历史事件，公元前221年（秦统一）~ 公元1918年（一战结束），地图与时间轴双向联动。" />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗺️</text></svg>" />
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@6/dist/maplibre-gl.css" />
+<link rel="stylesheet" href="./vendor/maplibre-gl.css" />
 <style>
 /* =========================
    设计令牌 & 全局基础（典藏图集主题）
@@ -22,6 +22,12 @@
   --line-gold: rgba(201,162,75,.34);
   --gold: #C9A24B;
   --gold-hi: #E9CC85;
+  /* 勘绘台：颜色只编码出处，不做装饰
+     金 = 已入库典藏 · 朱砂 = 我的草稿 · 石绿 = 通过校验 · 石青 = 只读底稿 */
+  --ed-zhu: #D0402A;
+  --ed-lv: #6F9E6A;
+  --ed-qing: #4A7B9C;
+  --ed-paper: #EDE3D2;
   --t1: #EFF1F7;
   --t2: #C7CCD9;
   --t3: #8B93A6;
@@ -522,6 +528,7 @@ button { font-family: inherit; }
 }
 .map-ctrl .zoom-btn { width: 36px; height: 36px; background: rgba(10,14,24,.85); backdrop-filter: blur(10px); border-color: var(--line); color: var(--t2); }
 .map-ctrl .zoom-btn:hover { border-color: var(--line-gold); color: var(--gold-hi); }
+.map-ctrl .zoom-btn.on { color: var(--ed-zhu); border-color: rgba(208,64,42,.5); background: rgba(208,64,42,.14); }
 
 /* 移动端事件栏开关 / 收起按钮：桌面默认隐藏 */
 .ep-toggle, .ep-close { display: none; }
@@ -967,6 +974,162 @@ button { font-family: inherit; }
   /* 抽屉展开时收起地图控制组，避免其 ☰ 遮挡抽屉头部的 ✕ 关闭按钮 */
   .map-ctrl.ep-open { display: none; }
 }
+
+/* ========================= 勘绘台（社区描图与贡献） ========================= */
+/* 描图纸：只在勘绘模式浮现的一层薄纸，退出即消失；典藏层同时降为墨线 */
+.ed-paper {
+  position: fixed; inset: 0; z-index: 1; pointer-events: none;
+  opacity: 0; transition: opacity .18s ease;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='linear' slope='0.075'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23p)'/%3E%3C/svg%3E") repeat,
+    linear-gradient(158deg, rgba(237,227,210,.10), rgba(237,227,210,.03) 46%, rgba(237,227,210,.085));
+}
+body.ed-on .ed-paper { opacity: 1; }
+
+/* 勘绘模式换场：事件栏让位给校勘卡，地图控制组左移，不新增第三种布局 */
+body.ed-on .event-panel { display: none; }
+body.ed-on .map-ctrl { right: 330px; }
+
+/* 笔架：左缘竖排工具，图标即动作 */
+.ed-rail {
+  position: fixed; left: 14px; top: 50%; transform: translateY(-50%);
+  display: none; flex-direction: column; gap: 4px; padding: 6px; z-index: 40;
+  background: var(--panel); border: 1px solid var(--line-gold); border-radius: var(--r-m);
+  backdrop-filter: blur(14px) saturate(130%); -webkit-backdrop-filter: blur(14px) saturate(130%);
+  box-shadow: var(--shadow-panel);
+}
+body.ed-on .ed-rail { display: flex; }
+.ed-rail hr { border: 0; border-top: 1px solid var(--line); margin: 3px 3px; }
+.ed-tool {
+  width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
+  background: transparent; border: 1px solid transparent; border-radius: var(--r-s);
+  color: var(--t3); cursor: pointer; transition: color .12s, background .12s, border-color .12s;
+}
+.ed-tool:hover { color: var(--gold-hi); background: rgba(201,162,75,.08); }
+.ed-tool.on { color: var(--ed-zhu); background: rgba(208,64,42,.13); border-color: rgba(208,64,42,.4); }
+.ed-tool svg { width: 16px; height: 16px; }
+
+/* 校勘卡：接住事件栏让出的那一列 */
+.ed-card {
+  position: fixed; right: 14px; top: 74px; bottom: 176px; width: 300px;
+  display: none; flex-direction: column; z-index: 40; pointer-events: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-l);
+  backdrop-filter: blur(16px) saturate(130%); -webkit-backdrop-filter: blur(16px) saturate(130%);
+  box-shadow: var(--shadow-panel), inset 0 1px 0 rgba(233,204,133,.05);
+  overflow: hidden;
+}
+body.ed-on .ed-card { display: flex; }
+.ed-head {
+  display: flex; align-items: baseline; gap: 8px; padding: 11px 14px 8px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.ed-name { font-family: var(--font-serif); font-size: 13px; font-weight: 700; color: var(--t1); letter-spacing: .05em; }
+.ed-era { font-family: "SF Mono", Consolas, monospace; font-size: 10px; color: var(--gold); }
+.ed-sum { margin-left: auto; font-size: 11px; color: var(--t3); }
+.ed-sum.ready { color: var(--ed-lv); }
+.ed-x {
+  flex: none; width: 22px; height: 22px; margin-left: 8px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,.06); border: 1px solid var(--line); border-radius: 7px;
+  color: var(--t3); font-size: 14px; line-height: 1; cursor: pointer;
+}
+.ed-x:hover { border-color: var(--line-gold); color: var(--gold-hi); }
+.ed-body { flex: 1; overflow-y: auto; padding: 10px 14px 6px; }
+.ed-sec { font-size: 11px; color: var(--t4); margin: 8px 0 5px; }
+.ed-row { margin-bottom: 8px; }
+.ed-row > label { display: block; font-size: 11px; color: var(--t3); margin-bottom: 4px; }
+.ed-row input, .ed-row textarea, .ed-row select {
+  width: 100%; padding: 6px 8px; font-size: 12px; font-family: inherit; color: var(--t1);
+  background: rgba(6,10,18,.6); border: 1px solid var(--line); border-radius: var(--r-s);
+  user-select: text; -webkit-user-select: text;
+}
+.ed-row textarea { resize: vertical; min-height: 42px; line-height: 1.5; }
+.ed-row input:focus, .ed-row textarea:focus, .ed-row select:focus {
+  border-color: rgba(201,162,75,.5);
+}
+.ed-years { display: flex; align-items: center; gap: 6px; }
+.ed-years input { font-family: "SF Mono", Consolas, monospace; text-align: center; }
+.ed-years b { font-weight: 400; color: var(--t4); font-size: 11px; }
+
+/* 要素清单：一枚色点即校验状态 */
+.ed-item {
+  display: flex; align-items: center; gap: 7px; padding: 5px 6px; margin: 0 -6px;
+  border-radius: var(--r-s); border-left: 2px solid transparent; cursor: pointer;
+}
+.ed-item:hover { background: rgba(255,255,255,.04); }
+.ed-item.sel { background: rgba(208,64,42,.1); border-left-color: var(--ed-zhu); }
+.ed-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ed-zhu); }
+.ed-dot.ok { background: var(--ed-lv); }
+.ed-dot.warn { background: var(--gold); }
+.ed-item .nm { font-size: 12px; color: var(--t2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ed-item .kt { margin-left: auto; flex: none; font-family: "SF Mono", Consolas, monospace; font-size: 10px; color: var(--t4); }
+.ed-ref-item .kt { color: var(--ed-qing); }
+.ed-ref-item .ed-dot { background: var(--ed-qing); }
+
+/* 校验消息：说清哪里不对、下一步往哪描 */
+.ed-issues { display: flex; flex-direction: column; gap: 5px; margin: 4px 0 10px; }
+.ed-msg { font-size: 11px; line-height: 1.6; padding: 6px 9px; border-radius: var(--r-s); }
+.ed-msg.err { background: rgba(208,64,42,.1); border: 1px solid rgba(208,64,42,.28); color: #F0B8AC; }
+.ed-msg.warn { background: rgba(201,162,75,.07); border: 1px solid rgba(201,162,75,.24); color: var(--gold-hi); }
+.ed-msg.hint { color: var(--t3); border: 1px dashed var(--line); background: none; }
+.ed-empty { font-size: 12px; line-height: 1.7; color: var(--t3); padding: 10px 2px; }
+
+.ed-foot { padding: 9px 14px 11px; border-top: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 7px; }
+.ed-path { font-family: "SF Mono", Consolas, monospace; font-size: 10px; color: var(--t4); line-height: 1.6; word-break: break-all; }
+.ed-actions { display: flex; gap: 6px; }
+.ed-btn {
+  flex: 1; padding: 7px 6px; font-size: 12px; color: var(--t2); cursor: pointer;
+  background: rgba(255,255,255,.05); border: 1px solid var(--line); border-radius: var(--r-s);
+  transition: color .12s, border-color .12s, background .12s;
+}
+.ed-btn:hover { border-color: var(--line-gold); color: var(--gold-hi); }
+.ed-btn.primary { background: rgba(201,162,75,.16); border-color: rgba(201,162,75,.42); color: var(--gold-hi); font-weight: 600; }
+.ed-btn.danger:hover { border-color: rgba(208,64,42,.5); color: #F0B8AC; background: rgba(208,64,42,.08); }
+.ed-btn:disabled { opacity: .4; cursor: not-allowed; }
+.ed-btn:disabled:hover { border-color: var(--line); color: var(--t2); }
+
+/* 递呈：token 只进内存，面板随用随开 */
+.ed-token {
+  display: flex; flex-direction: column; gap: 7px; margin-bottom: 8px; padding: 10px;
+  background: rgba(208,64,42,.07); border: 1px solid rgba(208,64,42,.26); border-radius: var(--r-s);
+}
+.ed-token p { font-size: 11px; line-height: 1.65; color: var(--t3); }
+.ed-token p b { color: var(--t2); font-weight: 600; }
+.ed-token a { color: var(--gold-hi); }
+.ed-token input {
+  padding: 6px 8px; font-size: 12px; color: var(--t1); user-select: text; -webkit-user-select: text;
+  background: rgba(6,10,18,.7); border: 1px solid var(--line); border-radius: var(--r-s);
+  font-family: "SF Mono", Consolas, monospace;
+}
+.ed-token input:focus { border-color: rgba(201,162,75,.5); }
+.ed-token .ed-actions { gap: 6px; }
+.ed-status { font-size: 11px; line-height: 1.6; color: var(--gold-hi); font-family: "SF Mono", Consolas, monospace; }
+.ed-status.err { color: #F0B8AC; }
+.ed-status a { color: var(--gold-hi); }
+
+.ed-toast {
+  position: fixed; left: 50%; bottom: 190px; transform: translateX(-50%) translateY(6px);
+  z-index: 70; max-width: min(560px, 78vw); padding: 8px 15px;
+  background: rgba(13,18,32,.94); border: 1px solid rgba(201,162,75,.32); border-radius: 10px;
+  color: var(--t1); font-size: 12px; line-height: 1.6; text-align: center;
+  opacity: 0; pointer-events: none; transition: opacity .16s, transform .16s;
+}
+.ed-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+@media (max-width: 900px) {
+  /* 分层：时间轴 → 笔架横条 → 校勘卡；地图控制组让位，用卡头的 × 收起 */
+  body.ed-on .map-ctrl { display: none; }
+  .ed-rail {
+    left: 10px; right: 10px; top: auto; bottom: 214px; transform: none;
+    flex-direction: row; justify-content: center;
+  }
+  .ed-rail hr { border-top: 0; border-left: 1px solid var(--line); width: 1px; height: 26px; margin: 0 2px; }
+  .ed-card { left: 10px; right: 10px; width: auto; top: auto; bottom: 266px; max-height: 34vh; }
+  .ed-toast { top: 10px; bottom: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ed-paper, .ed-toast, .ed-tool, .ed-btn, body.ed-on .map-ctrl { transition: none; }
+}
 </style>
 <script>
 /* 渲染驱动垫片：不依赖原生 requestAnimationFrame（部分嵌入环境/被遮挡窗口会永久暂停 rAF 导致地图黑屏）。
@@ -1085,6 +1248,7 @@ button { font-family: inherit; }
   <button class="zoom-btn" id="mapZoomIn" title="地图放大">+</button>
   <button class="zoom-btn" id="mapZoomOut" title="地图缩小">−</button>
   <button class="zoom-btn" id="mapReset" title="重置地图视图" style="font-size:13px;">⟲</button>
+  <button class="zoom-btn" id="edToggle" title="勘绘台：描图、自检、导出贡献数据" aria-pressed="false" style="font-size:14px;">✎</button>
 </div>
 
 <!-- 地图事件悬浮提示 -->
@@ -1182,6 +1346,57 @@ button { font-family: inherit; }
     <button class="ai-send" id="aiSend">发送</button>
   </div>
 </div>
+
+<!-- 勘绘台：描图纸遮罩 + 笔架 + 校勘卡（卡内内容由脚本渲染） -->
+<div class="ed-paper" aria-hidden="true"></div>
+
+<div class="ed-rail" id="edRail" role="toolbar" aria-label="描图工具">
+  <button class="ed-tool" data-tool="poly" title="描面：逐点落笔勾轮廓，Enter 闭合（P）" aria-label="描面">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3.5 20 9 17.2 19.5 6.6 18.6 3.4 10.2Z"/></svg>
+  </button>
+  <button class="ed-tool" data-tool="line" title="描线：逐点落笔走墙线，Enter 结束（L）" aria-label="描线">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19 10 10.5 14 14.5 20 5"/></svg>
+  </button>
+  <button class="ed-tool" data-tool="pt" title="落点：单击放一个关隘或城址（O）" aria-label="落点">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3.4"/><path d="M12 3v3.2M12 17.8V21M3 12h3.2M17.8 12H21" stroke-linecap="round"/></svg>
+  </button>
+  <hr />
+  <button class="ed-tool" data-tool="vertex" title="挪点：拖动顶点，单击线上补点，双击线上删点（V）" aria-label="挪点">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M12 4v16M4 12h16"/><rect x="9.2" y="9.2" width="5.6" height="5.6" rx="1"/></svg>
+  </button>
+  <button class="ed-tool" data-tool="trace" title="取底稿：单击当前年代的政权疆域，把它拓成只读描摹底（T）" aria-label="取底稿">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3.6" y="3.6" width="11" height="11" rx="1.2"/><path d="M9.6 20.4h8.8a2 2 0 0 0 2-2V9.6"/></svg>
+  </button>
+  <button class="ed-tool" data-tool="erase" title="擦除：单击一条已描的线或一个面（X）" aria-label="擦除">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 15.5 13 7l6 6-5.5 5.5H8z"/><path d="M8.5 20.5H20"/></svg>
+  </button>
+</div>
+
+<aside class="ed-card" id="edCard" aria-label="校勘卡">
+  <div class="ed-head">
+    <span class="ed-name">勘绘台</span>
+    <span class="ed-era" id="edEra"></span>
+    <span class="ed-sum" id="edSum">未动笔</span>
+    <button class="ed-x" id="edClose" aria-label="收起勘绘台" title="收起（Esc）">×</button>
+  </div>
+  <div class="ed-body" id="edBody"></div>
+  <div class="ed-foot">
+    <div class="ed-path" id="edPath"></div>
+    <div id="edTokenBox"></div>
+    <div class="ed-actions">
+      <button class="ed-btn primary" id="edSubmit">递呈 GitHub</button>
+    </div>
+    <div class="ed-actions">
+      <button class="ed-btn" id="edUndo" title="撤销上一步（Ctrl+Z）">撤销</button>
+      <button class="ed-btn" id="edImportBtn" title="导入他人成果作只读底稿">导入</button>
+      <button class="ed-btn" id="edExport" title="只存成本机文件，不走 GitHub">导出</button>
+    </div>
+    <div class="ed-status" id="edStatus"></div>
+  </div>
+  <input type="file" id="edFile" accept=".geojson,.json,application/geo+json" hidden />
+</aside>
+
+<div class="ed-toast" id="edToast" role="status" aria-live="polite"></div>
 
 <script>
 /* ============================================================
@@ -2309,16 +2524,17 @@ function writeHash() {
     const cy = Math.round(currentYear());
     const cats = [...state.activeCats].sort().join(',');
     const all = state.activeCats.size === CATEGORIES.length;
-    const p = new URLSearchParams();
-    p.set('y', String(cy));
-    if (!all) p.set('c', cats);
     const mh = mapHooks.viewHash ? mapHooks.viewHash() : null;
-    if (mh) p.set('map', mh);
     const ef = mapHooks.erasFlag ? mapHooks.erasFlag() : null;
-    if (ef === '0') p.set('e', '0'); // 关闭状态才写入，缺省=开启
     const ff = mapHooks.focusFlag ? mapHooks.focusFlag() : null;
-    if (ff) p.set('f', ff);
-    history.replaceState(null, '', '#' + p.toString());
+    // 手拼查询串而不用 URLSearchParams.toString()：后者会把 map 段的
+    // 斜杠编码成 %2F，门户跳板的深链正则只认裸 /，分享出去的链接会失配
+    let q = 'y=' + encodeURIComponent(cy);
+    if (!all) q += '&c=' + encodeURIComponent(cats);
+    if (mh) q += '&map=' + mh; // 仅数字/点/斜杠，hash 内合法且可读
+    if (ef === '0') q += '&e=0'; // 关闭状态才写入，缺省=开启
+    if (ff) q += '&f=' + encodeURIComponent(ff);
+    history.replaceState(null, '', '#' + q);
   } catch (_) {}
 }
 
@@ -2819,12 +3035,21 @@ window.__dataReady.then(ok => {
  * ============================================================ */
 const mapError = document.getElementById('mapError');
 let maplibregl;
-try {
-  // 锁定大版本 @6（v6 起 CDN 仅提供 ESM 构建）
-  maplibregl = await import('https://cdn.jsdelivr.net/npm/maplibre-gl@6/dist/maplibre-gl.mjs');
-} catch (err) {
-  mapError.classList.add('show');
-  console.error('MapLibre 加载失败', err);
+{
+  // 库本体随站分发（vendor/，v6.19.0，与站点同源——大陆直连 CDN 不可靠），
+  // 缺文件时按 jsdelivr → npmmirror 降级。锁定大版本 @6（v6 起 CDN 仅提供 ESM 构建）。
+  const SOURCES = [
+    './vendor/maplibre-gl.mjs',
+    'https://cdn.jsdelivr.net/npm/maplibre-gl@6/dist/maplibre-gl.mjs',
+    'https://registry.npmmirror.com/maplibre-gl/6/files/dist/maplibre-gl.mjs',
+  ];
+  for (const src of SOURCES) {
+    try { maplibregl = await import(src); break; } catch (_) { /* 下一个来源 */ }
+  }
+  if (!maplibregl) {
+    mapError.classList.add('show');
+    console.error('MapLibre 加载失败：本地 vendor/ 与全部 CDN 均不可达');
+  }
 }
 
 if (maplibregl) {
@@ -3455,7 +3680,963 @@ if (maplibregl) {
   document.getElementById('mapReset').addEventListener('click', () => {
     map.flyTo({ ...DEFAULT_VIEW, duration: 800, essential: true });
   });
+
+  // 本模块有顶层 await，后续 module 的求值顺序不可依赖；就绪信号显式广播给勘绘台
+  window.dispatchEvent(new Event('mapdex-map-ready'));
 }
+</script>
+
+<script type="module">
+/* ============================================================
+ * 模块七：勘绘台 —— 志愿者描图、自检、导出贡献文件
+ * 典藏舆图上铺一层描图纸：拓当前年代政权轮廓作只读底稿 → 描自己的
+ * 点/线/面 → 本地自检（说清哪里不对、往哪描）→ 导出 contributions/<handle>/
+ * 一键提 PR 属下一模块；这里先保证「画得对、拿得走」。
+ * 颜色只编码出处：金=已入库 · 朱砂=我的草稿 · 石绿=通过校验 · 石青=只读底稿
+ * ============================================================ */
+let map = window.__map;
+const $ = id => document.getElementById(id);
+
+const ZHU = '#D0402A', LV = '#6F9E6A', QING = '#4A7B9C';
+const S_WORK = 'ed-work', S_VERT = 'ed-verts', S_REF = 'ed-ref';
+const L_WORK = ['ed-work-fill', 'ed-work-line', 'ed-work-open', 'ed-work-pt'];
+const ED_LAYERS = ['ed-ref-fill', 'ed-ref-line'].concat(L_WORK, ['ed-vert']);
+const STORE_KEY = 'mapdex.contrib.v1';
+const GAP_KM = 120, VERT_SOFT = 300, VERT_HARD = 2000;
+const KINDS = [['wall', '长城'], ['pass', '关隘'], ['polity', '政权疆域'],
+  ['route', '道路 / 水系'], ['site', '城址 / 事件点'], ['misc', '其他']];
+const KIND_NAME = Object.fromEntries(KINDS);
+// 描图纸模式下典藏层降到的取值（原值在首次压暗时抓取，退出时逐项还原）
+const TRACE_TUNES = [
+  ['eras-fill', 'fill-opacity', 0.1],
+  ['eras-outline', 'line-opacity', 0.3],
+  ['eras-outline', 'line-color', '#3B4458'],
+  ['eras-labels-sym', 'text-opacity', 0.16],
+  ['cities-sym', 'icon-opacity', 0.22],
+];
+
+const toastEl = $('edToast'), bodyEl = $('edBody'), eraEl = $('edEra'), sumEl = $('edSum'),
+  pathEl = $('edPath'), fileEl = $('edFile'), exportBtn = $('edExport'),
+  undoBtn = $('edUndo'), toggleBtn = $('edToggle');
+
+let edOpen = false, tool = 'poly', handle = '';
+let draft = [], refs = [], selId = null, pending = null, dragging = null;
+let undoStack = [], paintBackup = {}, sliceCache = new Map(), manifest = null;
+let toastTimer = 0, saveTimer = 0, seq = 0;
+
+/* ---------------- 小工具 ---------------- */
+const fc = list => ({ type: 'FeatureCollection', features: list });
+const newId = () => 'c' + Date.now().toString(36) + (++seq);
+const r6 = v => Math.round(v * 1e6) / 1e6;
+const nowYear = () => Math.round(currentYear());
+const yLabel = y => (y < 0 ? '前' + (-y) : String(y));
+const fmtPt = c => (Math.round(c[0] * 100) / 100) + ', ' + (Math.round(c[1] * 100) / 100);
+const isNum = v => typeof v === 'number' && isFinite(v);
+const isEditable = () => /INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '');
+
+function km(a, b) {
+  const rad = Math.PI / 180;
+  const x = (b[0] - a[0]) * Math.cos((a[1] + b[1]) / 2 * rad), y = b[1] - a[1];
+  return Math.hypot(x, y) * rad * 6371;
+}
+function toast(msg, ms) {
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), ms || 2800);
+}
+
+/* 取要素的可编辑顶点环：线 = 折点，面 = 外环，点 = 单点 */
+function coordsOf(g) {
+  if (!g) return null;
+  if (g.type === 'Point') return [g.coordinates];
+  if (g.type === 'LineString') return g.coordinates;
+  if (g.type === 'Polygon') return g.coordinates[0];
+  return null;
+}
+function setCoords(f, list) {
+  const g = f.geometry;
+  if (g.type === 'Point') g.coordinates = list[0];
+  else if (g.type === 'LineString') g.coordinates = list;
+  else g.coordinates[0] = list;
+}
+const ringClosed = c => c.length > 3 && c[0][0] === c[c.length - 1][0] && c[0][1] === c[c.length - 1][1];
+
+function orient(a, b, c) {
+  return (c[1] - a[1]) * (b[0] - a[0]) - (b[1] - a[1]) * (c[0] - a[0]);
+}
+function segSeg(p1, p2, p3, p4) {
+  const d1 = orient(p3, p4, p1), d2 = orient(p3, p4, p2), d3 = orient(p1, p2, p3), d4 = orient(p1, p2, p4);
+  return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0));
+}
+/* 返回 false=不自交，[i,j]=相交的两段起点下标，null=顶点太多未检 */
+function selfIntersect(c) {
+  const n = ringClosed(c) ? c.length - 1 : c.length;
+  if (n < 4) return false;
+  if (n > 120) return null;
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue;
+      if (segSeg(c[i], c[(i + 1) % n], c[j], c[(j + 1) % n])) return [i, j];
+    }
+  }
+  return false;
+}
+
+/* ---------------- 模型 ---------------- */
+function mkFeature(geometry) {
+  const y = nowYear();
+  return {
+    type: 'Feature', geometry,
+    properties: {
+      _id: newId(), _open: tool !== 'pt', name: '',
+      kind: tool === 'poly' ? 'polity' : (tool === 'line' ? 'wall' : 'site'),
+      start_year: y, end_year: y, source: '', note: '',
+    },
+  };
+}
+const selFeature = () => draft.find(f => f.properties._id === selId) || null;
+const pendingFeature = () => pending ? draft.find(f => f.properties._id === pending) : null;
+const vertexTarget = () => pendingFeature() || selFeature();
+
+function workFeatures() {
+  return draft.map(f => ({
+    type: 'Feature', geometry: f.geometry,
+    properties: Object.assign({}, f.properties, { _sel: f.properties._id === selId }),
+  }));
+}
+function refFeatures() { return refs.map(f => ({ type: 'Feature', geometry: f.geometry, properties: f.properties })); }
+function vertFeatures() {
+  const f = vertexTarget();
+  if (!f || f.geometry.type === 'Point') return [];
+  return (coordsOf(f.geometry) || []).map((c, i) => ({
+    type: 'Feature', geometry: { type: 'Point', coordinates: c },
+    properties: { _id: f.properties._id, vi: i, _act: dragging && dragging.id === f.properties._id && dragging.vi === i },
+  }));
+}
+
+function snapshot() {
+  undoStack.push(JSON.stringify({ draft, refs, selId }));
+  if (undoStack.length > 24) undoStack.shift();
+}
+function undo() {
+  if (!undoStack.length) return;
+  const s = JSON.parse(undoStack.pop());
+  draft = s.draft; refs = s.refs; selId = s.selId; pending = null; dragging = null;
+  if (selId && !selFeature()) selId = null;
+  commit();
+  toast('已撤销');
+}
+
+function persist() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify({ handle, draft, refs })); } catch (e) {}
+  }, 400);
+}
+function restore() {
+  let s = null;
+  try { s = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch (e) {}
+  if (!s) return;
+  handle = s.handle || '';
+  draft = Array.isArray(s.draft) ? s.draft : [];
+  refs = Array.isArray(s.refs) ? s.refs : [];
+  if (draft.length || refs.length) toast('已接上本机未导出的 ' + draft.length + ' 条草稿');
+}
+
+/* ---------------- 图层 ---------------- */
+function buildLayers() {
+  ED_LAYERS.forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
+  [S_REF, S_WORK, S_VERT].forEach(id => {
+    if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data: fc([]) });
+  });
+  const lineFilter = open => ['all', ['!=', ['geometry-type'], 'Point'],
+    ['==', ['boolean', ['get', '_open'], false], open]];
+  map.addLayer({
+    id: 'ed-ref-fill', type: 'fill', source: S_REF,
+    paint: { 'fill-color': QING, 'fill-opacity': 0.1 },
+  });
+  map.addLayer({
+    id: 'ed-ref-line', type: 'line', source: S_REF,
+    paint: { 'line-color': QING, 'line-width': 1, 'line-opacity': 0.75, 'line-dasharray': [2, 2] },
+  });
+  map.addLayer({
+    id: 'ed-work-fill', type: 'fill', source: S_WORK, filter: ['==', ['geometry-type'], 'Polygon'],
+    paint: {
+      'fill-color': ['case', ['boolean', ['get', '_sel'], false], ZHU, ZHU],
+      'fill-opacity': ['case', ['boolean', ['get', '_sel'], false], 0.22, 0.12],
+    },
+  });
+  map.addLayer({
+    id: 'ed-work-line', type: 'line', source: S_WORK, filter: lineFilter(false),
+    paint: {
+      'line-color': ['case', ['boolean', ['get', '_sel'], false], '#EF6A45', ZHU],
+      'line-width': ['case', ['boolean', ['get', '_sel'], false], 3, 2],
+      'line-opacity': 0.95,
+    },
+  });
+  map.addLayer({
+    id: 'ed-work-open', type: 'line', source: S_WORK, filter: lineFilter(true),
+    paint: { 'line-color': ZHU, 'line-width': 2, 'line-dasharray': [1.5, 1.5], 'line-opacity': 0.9 },
+  });
+  map.addLayer({
+    id: 'ed-work-pt', type: 'circle', source: S_WORK, filter: ['==', ['geometry-type'], 'Point'],
+    paint: {
+      'circle-radius': ['case', ['boolean', ['get', '_sel'], false], 7, 5],
+      'circle-color': ZHU, 'circle-stroke-color': '#0D1220', 'circle-stroke-width': 1.5,
+    },
+  });
+  map.addLayer({
+    id: 'ed-vert', type: 'circle', source: S_VERT,
+    paint: {
+      'circle-radius': ['case', ['boolean', ['get', '_act'], false], 6.5, 4],
+      'circle-color': 'rgba(13,18,32,.92)', 'circle-stroke-color': ZHU, 'circle-stroke-width': 1.6,
+    },
+  });
+}
+function traceStyle(on) {
+  TRACE_TUNES.forEach(([id, key, val]) => {
+    if (!map.getLayer(id)) return;
+    const k = id + '|' + key;
+    try {
+      if (on) {
+        if (!(k in paintBackup)) paintBackup[k] = map.getPaintProperty(id, key);
+        map.setPaintProperty(id, key, val);
+      } else if (k in paintBackup) {
+        map.setPaintProperty(id, key, paintBackup[k]);
+      }
+    } catch (e) {}
+  });
+  // 底图的现代地名也要退到纸后：描图时眼睛要跟朱砂线，不是跟 Hohhot 这种标注
+  const layers = (map.getStyle() || {}).layers || [];
+  layers.forEach(l => {
+    if (l.type !== 'symbol' || /^(eras|cities|ed-)/.test(l.id)) return;
+    ['text-opacity', 'icon-opacity'].forEach(key => {
+      const k = 'b:' + l.id + '|' + key;
+      try {
+        if (on) {
+          if (!(k in paintBackup)) {
+            // 多数标注层不声明 opacity（走默认 1），原值只能从样式声明里取，取不到就是 undefined
+            const declared = ((map.getStyle().layers.find(x => x.id === l.id) || {}).paint || {})[key];
+            paintBackup[k] = declared;
+          }
+          map.setPaintProperty(l.id, key, key === 'text-opacity' ? 0.4 : 0.3);
+        } else if (k in paintBackup) {
+          map.setPaintProperty(l.id, key, paintBackup[k]);
+        }
+      } catch (e) {}
+    });
+  });
+}
+function paintData() {
+  if (!map || !map.getSource(S_WORK)) return;
+  map.getSource(S_WORK).setData(fc(workFeatures()));
+  map.getSource(S_VERT).setData(fc(vertFeatures()));
+  map.getSource(S_REF).setData(fc(refFeatures()));
+}
+
+/* ---------------- 校验（阻断项 + 提醒项，都要说下一步） ---------------- */
+function issues(f) {
+  const err = [], warn = [], p = f.properties, g = f.geometry, c = coordsOf(g) || [];
+  if (p._open) return { hint: '这条还在描：继续单击落顶点，Enter 收尾，Esc 放弃。', err, warn };
+  if (!String(p.name || '').trim()) err.push('还没有名字。写个认得出的，比如「明长城·宣府镇段」。');
+  if (!String(p.source || '').trim()) err.push('依据还空着。写下照着什么描的——图册页码、实测记录、文献条目都行，校勘的人只认这一栏。');
+
+  const s = p.start_year, e = p.end_year;
+  if (!isNum(s) || !isNum(e)) err.push('起止年要两个整数；公元前用负数，如 -221。');
+  else if (e < s) err.push('终止年（' + yLabel(e) + '）早于起始年（' + yLabel(s) + '），两个数字对调一下。');
+  else if (e < MIN_YEAR || s > MAX_YEAR) err.push('整条落在本图时间范围外（' + yLabel(MIN_YEAR) + ' ~ ' + MAX_YEAR + '），哪个年代都不会显示它。');
+  else if (s < MIN_YEAR || e > MAX_YEAR) warn.push('起止年有一部分在本图范围外，超出的那段不会出现。');
+
+  if (g.type === 'LineString' && c.length < 2) err.push('线段不足两个顶点，连不起来。再落一个点，或按 Esc 放弃。');
+  if (g.type === 'Polygon' && c.length < 4) err.push('外环只有 ' + Math.max(0, c.length - 1) + ' 个点，闭不成面。至少 3 个。');
+  const bad = c.find(v => !isNum(v[0]) || !isNum(v[1]) || Math.abs(v[0]) > 180 || Math.abs(v[1]) > 90);
+  if (bad) err.push('有顶点落在经纬度范围外（' + fmtPt(bad) + '）。把时间轴拖回图幅内重新描这一段。');
+
+  if (g.type !== 'Point' && c.length > 1) {
+    let worst = { d: -1 };
+    for (let i = 1; i < c.length; i++) {
+      const d = km(c[i - 1], c[i]);
+      if (d > worst.d) worst = { d, a: c[i - 1], b: c[i] };
+    }
+    if (worst.d > GAP_KM) warn.push('顶点 ' + fmtPt(worst.a) + ' 到 ' + fmtPt(worst.b) + ' 之间空了约 ' +
+      Math.round(worst.d) + ' 公里，像漏描了一段；确是天然缺口（沙漠、河谷）就忽略这条。');
+  }
+  if (g.type === 'Polygon') {
+    const hit = selfIntersect(c);
+    if (hit) err.push('第 ' + (hit[0] + 1) + ' 段与第 ' + (hit[1] + 1) + ' 段交叉，轮廓会打结。用「挪点」把其中一边拉开。');
+    else if (hit === null) warn.push('顶点较多，没做自交检查。导出前自己看一眼轮廓有没有打结。');
+  }
+  const n = c.length;
+  if (n > VERT_HARD) err.push('共 ' + n + ' 个顶点，超过 ' + VERT_HARD + ' 的上限。地图会卡，也超过仓库单文件体积；放大后重描，或删掉冗余顶点。');
+  else if (n > VERT_SOFT) warn.push('共 ' + n + ' 个顶点，偏多。描到 ' + VERT_SOFT + ' 以内更顺，也便于校勘。');
+  return { hint: '', err, warn };
+}
+/* 未收尾也算「还不能交」，但它不是错——用虚线提示，不占红字 */
+const notReady = f => f.properties._open || issues(f).err.length > 0;
+
+/* ---------------- 卡片渲染 ---------------- */
+function itemRow(f, dotCls, name, kind, extra) {
+  return '<div class="ed-item' + (f.properties._id === selId ? ' sel' : '') + extra.cls + '" data-id="' +
+    f.properties._id + '" tabindex="0" role="button" title="' + extra.title + '" aria-label="' +
+    name + '，' + extra.title + '">' +
+    '<span class="ed-dot ' + dotCls + '"></span><span class="nm">' + name + '</span>' +
+    '<span class="kt">' + kind + '</span></div>';
+}
+function renderCard() {
+  const sel = selFeature();
+  const html = [];
+  html.push('<div class="ed-row"><label for="edHandle">GitHub 用户名</label>' +
+    '<input id="edHandle" type="text" value="' + esc(handle) + '" placeholder="starve001" autocomplete="off" spellcheck="false" /></div>');
+
+  if (!draft.length && !refs.length) {
+    html.push('<div class="ed-empty">白纸上还没有东西。左边挑一个工具，在图上单击落顶点；' +
+      '或者用「取底稿」把当前年代的政权疆域拓成描摹底，照着描。</div>');
+  } else {
+    if (draft.length) {
+      html.push('<div class="ed-sec">我的草稿 · ' + draft.length + ' 条</div>');
+      html.push(draft.map(f => {
+        const i = issues(f), p = f.properties;
+        const dot = p._open ? 'warn' : (i.err.length ? '' : (i.warn.length ? 'warn' : 'ok'));
+        const nm = (p.name || '（未命名）') + (p._open ? ' · 未收尾' : '');
+        return itemRow(f, dot, esc(nm), KIND_NAME[p.kind] || p.kind,
+          { cls: '', title: '单击改这一条的属性，顶点同时浮出来' });
+      }).join(''));
+    }
+    if (refs.length) {
+      html.push('<div class="ed-sec">只读底稿 · ' + refs.length + ' 张（单击去掉）</div>');
+      html.push(refs.map(f => itemRow(f, '', esc(f.properties.name || '底稿'), '底稿',
+        { cls: ' ed-ref-item', title: '单击去掉这张底稿' })).join(''));
+    }
+  }
+
+  if (sel) {
+    const p = sel.properties;
+    html.push('<div class="ed-row" style="margin-top:10px"><label for="edName">名称</label>' +
+      '<input id="edName" type="text" value="' + esc(p.name) + '" placeholder="明长城·宣府镇段" autocomplete="off" /></div>');
+    html.push('<div class="ed-row"><label for="edKind">类别</label><select id="edKind">' +
+      KINDS.map(([k, l]) => '<option value="' + k + '"' + (p.kind === k ? ' selected' : '') + '>' + l + '</option>').join('') +
+      '</select></div>');
+    html.push('<div class="ed-row"><label>起止年（公元前用负数）</label><div class="ed-years">' +
+      '<input id="edS" type="number" step="1" value="' + (isNum(p.start_year) ? p.start_year : '') + '" />' +
+      '<b>—</b><input id="edE" type="number" step="1" value="' + (isNum(p.end_year) ? p.end_year : '') + '" /></div></div>');
+    html.push('<div class="ed-row"><label for="edSource">依据</label>' +
+      '<textarea id="edSource" placeholder="《中国历史地图集》第四册 图 32，1:100 万底图套描">' + esc(p.source) + '</textarea></div>');
+  }
+  html.push('<div class="ed-issues" id="edIssues"></div>');
+  bodyEl.innerHTML = html.join('');
+  wireCard();
+  refreshIssues();
+}
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+}
+function wireCard() {
+  const h = $('edHandle');
+  if (h) h.addEventListener('input', () => { handle = h.value.trim().replace(/[^A-Za-z0-9._-]/g, ''); chrome(); persist(); });
+  const sel = selFeature();
+  if (!sel) return;
+  const p = sel.properties;
+  const bind = (id, key, cast) => {
+    const n = $(id);
+    if (!n) return;
+    n.addEventListener('input', () => {
+      p[key] = cast ? cast(n.value) : n.value.trim();
+      live();
+    });
+  };
+  bind('edName', 'name');
+  bind('edKind', 'kind');
+  bind('edS', 'start_year', numOrNull);
+  bind('edE', 'end_year', numOrNull);
+  bind('edSource', 'source');
+}
+const numOrNull = v => (v === '' || v == null ? NaN : Number(v));
+
+function refreshIssues() {
+  const box = $('edIssues');
+  if (!box) return;
+  const sel = selFeature();
+  const list = sel ? [issues(sel)] : draft.map(issues);
+  const msgs = [];
+  list.forEach(i => {
+    if (i.hint) msgs.push('<div class="ed-msg hint">' + esc(i.hint) + '</div>');
+    i.err.forEach(m => msgs.push('<div class="ed-msg err">' + esc(m) + '</div>'));
+    i.warn.forEach(m => msgs.push('<div class="ed-msg warn">' + esc(m) + '</div>'));
+  });
+  if (!sel && !draft.length && !msgs.length) msgs.push('<div class="ed-msg hint">下笔之后，这里会逐条告诉你哪一段还不能交。</div>');
+  box.innerHTML = msgs.slice(0, 6).join('');
+}
+function stamp() {
+  const d = new Date();
+  return d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+}
+function chrome() {
+  const bad = draft.filter(notReady).length;
+  sumEl.textContent = !draft.length ? '未动笔' : (bad ? bad + ' 处待修' : draft.length + ' 条已就绪');
+  sumEl.classList.toggle('ready', !!draft.length && !bad);
+  eraEl.textContent = '描 ' + yLabel(nowYear()) + ' 年';
+  pathEl.textContent = handle
+    ? '→ contributions/' + handle + '/' + handle + '-' + stamp() + '.geojson'
+    : '先填 GitHub 用户名，才知道文件放进哪个目录';
+  exportBtn.disabled = !draft.length || bad > 0;
+  undoBtn.disabled = !undoStack.length;
+  const sb = $('edSubmit');
+  if (sb && !busy) {
+    sb.disabled = !draft.length || bad > 0;
+    sb.textContent = lastPr && !bad ? '再递呈一次' : '递呈 GitHub';
+  }
+}
+const commit = () => { paintData(); chrome(); renderCard(); persist(); };
+const live = () => { paintData(); chrome(); syncList(); refreshIssues(); persist(); };
+/* 清单不整块重绘（会抢走输入框焦点），只把选中那一行的名字和色点跟上手头的改动 */
+function syncList() {
+  const f = selFeature();
+  const row = f && bodyEl.querySelector('.ed-item.sel');
+  if (!row) return;
+  const p = f.properties, i = issues(f);
+  row.querySelector('.nm').textContent = (p.name || '（未命名）') + (p._open ? ' · 未收尾' : '');
+  row.querySelector('.ed-dot').className =
+    'ed-dot ' + (p._open ? 'warn' : (i.err.length ? '' : (i.warn.length ? 'warn' : 'ok')));
+}
+
+/* ---------------- 开关与工具 ---------------- */
+function setOpen(on) {
+  if (!map) { toast('底图还没加载出来，勘绘要等地图就绪。'); return; }
+  edOpen = on;
+  document.body.classList.toggle('ed-on', on);
+  toggleBtn.classList.toggle('on', on);
+  toggleBtn.setAttribute('aria-pressed', String(on));
+  traceStyle(on);
+  if (on) {
+    map.doubleClickZoom.disable();
+    setTool(tool);
+    commit();
+  } else {
+    map.doubleClickZoom.enable();
+    map.getCanvas().style.cursor = '';
+    dragging = null;
+    map.dragPan.enable();
+    // 收起勘绘台就把草稿从图面上撤下：浏览态只留典藏，草稿仍在机器上
+    if (map.getSource(S_WORK)) {
+      [S_REF, S_WORK, S_VERT].forEach(id => map.getSource(id).setData(fc([])));
+    }
+  }
+}
+function setTool(t) {
+  const prev = tool;
+  tool = t;
+  Array.from(document.querySelectorAll('.ed-tool')).forEach(b => b.classList.toggle('on', b.dataset.tool === t));
+  // 换工具就是换笔：上一条没收尾的先收掉，不能把新笔墨接到旧线上
+  let resumed = false;
+  if (pending && t !== prev) {
+    finishPending();
+    if (pending) { pending = null; resumed = true; }
+  }
+  if (map) {
+    if (t !== 'vertex' && dragging) { dragging = null; map.dragPan.enable(); }
+    map.getCanvas().style.cursor = (t === 'trace' || t === 'vertex') ? '' : 'crosshair';
+  }
+  if (resumed) { toast('上一条还没描完，先搁在图上了。在清单里点它可以接着描。'); return; }
+  const hint = {
+    poly: '描面：单击逐点落笔勾轮廓，Enter 或点回起点闭合',
+    line: '描线：单击沿墙线走点，Enter 收尾',
+    pt: '落点：单击放一个关隘或城址',
+    vertex: '挪点：拖顶点改位置，单击线上补点，双击线上删点',
+    trace: '取底稿：单击当前年代的政权疆域，拓成只读描摹底',
+    erase: '擦除：单击一条已描的线或一个面',
+  }[t];
+  toast(hint, 2200);
+}
+
+/* ---------------- 地图交互 ---------------- */
+const pickWork = pt => map.queryRenderedFeatures(pt, { layers: L_WORK })[0];
+const pickHandle = pt => map.queryRenderedFeatures(pt, { layers: ['ed-vert'] })[0];
+
+function addVertex(c) {
+  const f = pendingFeature();
+  if (!f) return;
+  const list = coordsOf(f.geometry).slice();
+  list.push(c);
+  setCoords(f, list);
+}
+function finishPending() {
+  const f = pendingFeature();
+  if (!f) return;
+  const c = coordsOf(f.geometry).slice();
+  if (f.geometry.type === 'Polygon') {
+    if (c.length < 4) { toast('面至少要 3 个顶点才闭得起来，现在只有 ' + (c.length - 1) + ' 个。'); return; }
+    if (!ringClosed(c)) c.push([c[0][0], c[0][1]]);
+  } else if (c.length < 2) { toast('线至少要 2 个顶点。'); return; }
+  setCoords(f, c);
+  f.properties._open = false;
+  pending = null;
+  commit();
+  toast('已收尾。在右边卡里补上名称和依据。');
+}
+function nearStart(pt) {
+  const f = pendingFeature();
+  if (!f || f.geometry.type === 'Point') return false;
+  const c = coordsOf(f.geometry)[0];
+  const p = map.project(c), q = pt;
+  return Math.hypot(p.x - q.x, p.y - q.y) < 12;
+}
+function removeFeature(id) {
+  snapshot();
+  const i = draft.findIndex(f => f.properties._id === id);
+  if (i < 0) {
+    const j = refs.findIndex(f => f.properties._id === id);
+    if (j < 0) return;
+    const nm = refs[j].properties.name;
+    refs.splice(j, 1);
+    commit();
+    toast('去掉了底稿「' + nm + '」');
+    return;
+  }
+  const nm = draft[i].properties.name || '未收尾的一条';
+  if (pending === id) pending = null;
+  if (selId === id) selId = null;
+  draft.splice(i, 1);
+  commit();
+  toast('擦掉了「' + nm + '」（Ctrl+Z 撤销）');
+}
+function moveVertex(id, vi, c) {
+  const f = draft.find(x => x.properties._id === id);
+  if (!f) return;
+  const list = coordsOf(f.geometry).slice();
+  list[vi] = c;
+  setCoords(f, list);
+  live();
+}
+function dropVertex(id, vi) {
+  const f = draft.find(x => x.properties._id === id);
+  if (!f) return;
+  const list = coordsOf(f.geometry).slice();
+  if (f.geometry.type === 'Polygon' ? list.length <= 4 : list.length <= 2) {
+    toast('再删就不成形状了。要整条去掉用「擦除」。');
+    return;
+  }
+  snapshot();
+  list.splice(vi, 1);
+  if (f.geometry.type === 'Polygon' && ringClosed(list)) list.pop();
+  setCoords(f, list);
+  commit();
+}
+/* 单击线段补点：把落点投到最近的一段上 */
+function insertVertex(id, lnglat) {
+  const f = draft.find(x => x.properties._id === id);
+  if (!f || f.geometry.type === 'Point') return false;
+  const c = coordsOf(f.geometry), p = [r6(lnglat.lng), r6(lnglat.lat)];
+  let best = null;
+  for (let i = 1; i < c.length; i++) {
+    const a = c[i - 1], b = c[i];
+    const dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy;
+    const t = L2 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2)) : 0;
+    const q = [a[0] + t * dx, a[1] + t * dy], d = km(p, q);
+    if (!best || d < best.d) best = { d, i, q: [r6(q[0]), r6(q[1])] };
+  }
+  if (!best || best.d > 40) return false;
+  snapshot();
+  const list = c.slice();
+  list.splice(best.i, 0, best.q);
+  setCoords(f, list);
+  selId = id;
+  commit();
+  return true;
+}
+
+async function loadManifest() {
+  if (manifest) return manifest;
+  manifest = (await fetch(API_BASE + 'eras/index.json')).json();
+  return manifest;
+}
+function sliceOfYear(list, y) {
+  let hit = null;
+  list.forEach(e => { if (e.y <= y && (!hit || e.y > hit.y)) hit = e; });
+  return hit;
+}
+async function grabTrace(pt) {
+  if (!map.getLayer('eras-fill')) { toast('先点亮时间轴上的「政权版图」，才有疆域可拓成底稿。'); return; }
+  const hit = map.queryRenderedFeatures(pt, { layers: ['eras-fill'] })[0];
+  if (!hit) { toast('这一带在当前年代没有政权疆域。把时间轴拖到有版图的年代再拓。'); return; }
+  const src = hit.properties.NAME || hit.properties.name || '';
+  let list;
+  try { list = (await loadManifest()).eras; } catch (e) { toast('版图清单没取到，检查一下网络或后端。'); return; }
+  const era = sliceOfYear(list, nowYear());
+  if (!era) return;
+  let slice = sliceCache.get(era.y);
+  if (!slice) {
+    try {
+      slice = await (await fetch(API_BASE + 'eras/' + era.y)).json();
+      sliceCache.set(era.y, slice);
+    } catch (e) { toast('切片 ' + era.l + ' 没取到，拓不成底稿。'); return; }
+  }
+  const found = slice.features.filter(f => (f.properties.NAME || '') === src);
+  if (!found.length) { toast('切片里没找到这块疆域的名字，拓不成底稿。'); return; }
+  const zh = hit.properties._nz || src;
+  found.forEach(f => refs.push({
+    type: 'Feature', geometry: f.geometry,
+    properties: { _id: newId(), name: zh + '（' + era.l + ' 疆域）', ref_only: true },
+  }));
+  commit();
+  toast('拓了「' + zh + '」的 ' + found.length + ' 块轮廓作底稿，石青虚线，只读。');
+}
+
+function onMapClick(e) {
+  if (!edOpen) return;
+  const pt = e.point;
+  if (tool === 'trace') { grabTrace(pt); return; }
+  if (tool === 'erase') { const f = pickWork(pt); if (f) removeFeature(f.properties._id); return; }
+  const c = [r6(e.lngLat.lng), r6(e.lngLat.lat)];
+  if (tool === 'pt') {
+    snapshot();
+    const f = mkFeature({ type: 'Point', coordinates: c });
+    draft.push(f); selId = f.properties._id; pending = null;
+    commit();
+    return;
+  }
+  if (tool === 'vertex') {
+    if (pickHandle(pt)) return;
+    const f = pickWork(pt);
+    if (f && !insertVertex(f.properties._id, e.lngLat)) toast('这一处离已有的线太远，补不上点。挪点请贴着你描的线单击。');
+    return;
+  }
+  if (pending) {
+    if (tool === 'poly' && nearStart(pt)) { finishPending(); return; }
+    snapshot();
+    addVertex(c);
+    live();
+    return;
+  }
+  snapshot();
+  const f = mkFeature(tool === 'poly' ? { type: 'Polygon', coordinates: [[c]] } : { type: 'LineString', coordinates: [c] });
+  draft.push(f);
+  pending = f.properties._id;
+  selId = pending;
+  commit();
+}
+
+function selectById(id) {
+  if (refs.some(f => f.properties._id === id)) { removeFeature(id); return; }
+  const f = draft.find(x => x.properties._id === id);
+  if (!f) return;
+  snapshot();
+  selId = (selId === id ? null : id);
+  pending = (selId && f.properties._open) ? id : null;
+  commit();
+}
+
+/* ---------------- 导出与导入 ---------------- */
+function cleanProps(p) {
+  const out = {};
+  Object.keys(p).forEach(k => { if (k[0] !== '_' && p[k] !== '' && p[k] != null) out[k] = p[k]; });
+  out.contributor = handle;
+  out.license = 'CC BY 4.0';
+  out.traced_on = new Date().toISOString().slice(0, 10);
+  return out;
+}
+function contribution() {
+  return {
+    type: 'FeatureCollection',
+    name: 'MAPDEX 贡献 · ' + handle,
+    features: draft.map(f => ({ type: 'Feature', geometry: f.geometry, properties: cleanProps(f.properties) })),
+  };
+}
+function doExport() {
+  if (!draft.length) { toast('还没下笔。左边挑一个工具，在图上描。'); return; }
+  if (!handle) { toast('先填 GitHub 用户名，贡献文件要知道归谁。'); $('edHandle') && $('edHandle').focus(); return; }
+  const bad = draft.findIndex(notReady);
+  if (bad >= 0) {
+    selId = draft[bad].properties._id;
+    pending = draft[bad].properties._open ? selId : null;
+    commit();
+    toast('第 ' + (bad + 1) + ' 条还不能交，右边列了要改的地方。');
+    return;
+  }
+  const text = JSON.stringify(contribution(), null, 1);
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/geo+json' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = handle + '-' + stamp() + '.geojson';
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('存好了 ' + a.download + '（' + draft.length + ' 条）。放进 fork 的 contributions/' + handle + '/ 就能提 PR。');
+}
+function doImport(file) {
+  const rd = new FileReader();
+  rd.onload = () => {
+    let data;
+    try { data = JSON.parse(rd.result); } catch (e) { toast('这个文件读不出 JSON，检查一下是不是 GeoJSON。'); return; }
+    const list = data.type === 'FeatureCollection' ? data.features : (data.type === 'Feature' ? [data] : null);
+    if (!list || !list.length) { toast('文件里没有 Feature。先确认导出的是一份 GeoJSON。'); return; }
+    const mine = String(handle) === String((data.name || '').replace('MAPDEX 贡献 · ', ''));
+    snapshot();
+    list.forEach(f => {
+      if (!f.geometry) return;
+      const p = Object.assign({}, f.properties, { _id: newId() });
+      if (mine) {
+        p.start_year = Number(p.start_year);
+        p.end_year = Number(p.end_year);
+        p._open = false;
+        draft.push({ type: 'Feature', geometry: f.geometry, properties: p });
+      } else {
+        refs.push({ type: 'Feature', geometry: f.geometry, properties: { _id: newId(), name: p.name || '他人成果', ref_only: true } });
+      }
+    });
+    commit();
+    toast(mine ? '接回了自己的 ' + list.length + ' 条草稿' : '把这份成果放成了只读底稿（石青），照着描你自己的');
+  };
+  rd.readAsText(file);
+}
+
+/* ---------------- 递呈 GitHub ----------------
+ * fine-grained token 只能写自己的 fork，跨仓库建 PR 会被 GitHub 判 403，
+ * 所以这一步只把文件写进 fork，最后「开 PR」那一下留给人自己点。
+ * token 只待在本模块的变量里：不落盘、不进 localStorage、不发往 GitHub 之外。 */
+const API = 'https://api.github.com';
+let ghToken = '', busy = false, lastPr = '';
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function upstream() {
+  const host = location.hostname.match(/^([A-Za-z0-9-]+)\.github\.io$/);
+  const seg = location.pathname.split('/').filter(Boolean);
+  if (host && seg.length) return { owner: host[1], repo: seg[0] };
+  return { owner: 'starve001', repo: 'timemap' }; // 本地跑测 / 自建部署的兜底
+}
+async function gh(p, opt) {
+  opt = opt || {};
+  const h = { Accept: 'application/vnd.github+json' };
+  if (ghToken) h.Authorization = 'Bearer ' + ghToken;
+  if (opt.body) h['Content-Type'] = 'application/json';
+  // 没有超时的 fetch 会把递呈按钮永久卡在「递呈中…」，网络不通时必须自己收场
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 20000);
+  let res, txt = '', json = null;
+  try {
+    res = await fetch(API + p, {
+      method: opt.method || 'GET', headers: h, signal: ctl.signal,
+      body: opt.body ? JSON.stringify(opt.body) : undefined,
+    });
+    txt = await res.text();
+    try { json = JSON.parse(txt); } catch (e) {}
+  } catch (e) {
+    throw new Error(e && e.name === 'AbortError'
+      ? 'GitHub 20 秒没回应。这网络到不了 api.github.com（可能要代理）——先用「导出」拿文件，再手工放进你的 fork。'
+      : '连不上 GitHub（' + (e.message || e) + '）。网络通再点一次，改动都还在本机。');
+  } finally {
+    clearTimeout(timer);
+  }
+  return { ok: res.ok, status: res.status, json, txt };
+}
+function why(res, step) {
+  const m = (res.json && res.json.message) || (res.txt || '').slice(0, 140) || ('HTTP ' + res.status);
+  if (res.status === 401) return 'token 不被接受（401）：要么粘错了，要么已过期或被吊销，重新生成一把。';
+  if (res.status === 403 && /not accessible/i.test(m)) {
+    return 'token 权限不够（403）：它得覆盖你自己的那个 fork 仓库，并且勾上 Contents: Read and write。';
+  }
+  if (res.status === 403 && /rate limit/i.test(m)) return 'GitHub 限流了（403），一小时后再点递呈。';
+  if (res.status === 404) return step + '：GitHub 说找不到（404）。' + m;
+  return step + '：' + m;
+}
+function b64(str) {
+  const bytes = new TextEncoder().encode(str);
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s);
+}
+function setStatus(html, isErr) {
+  const n = $('edStatus');
+  if (!n) return;
+  n.className = 'ed-status' + (isErr ? ' err' : '');
+  n.innerHTML = html || '';
+}
+function showTokenPanel() {
+  const repo = upstream().repo;
+  $('edTokenBox').innerHTML = '<div class="ed-token">' +
+    '<p><b>递呈要一把只管你自己 fork 的 token。</b>GitHub 的权限模型决定了浏览器里的 token 写不进别人的仓库，' +
+    '所以这一步只把文件写进你的 fork，开 PR 那一下还是在 GitHub 上点。</p>' +
+    '<input id="edTokenInput" type="password" placeholder="github_pat_…（只存内存，刷新即失）" autocomplete="off" spellcheck="false" />' +
+    '<p>建法：<a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">新建 fine-grained token</a> → ' +
+    'Repository access 选 Only select repositories → 填 <b>' + esc(repo) + '</b>（你的那个 fork）→ ' +
+    'Permissions 里 Contents 给 Read and write。有效期挑最短的。</p>' +
+    '<div class="ed-actions"><button class="ed-btn" id="edTokenCancel">先不交</button>' +
+    '<button class="ed-btn primary" id="edTokenGo">存下并递呈</button></div></div>';
+  $('edTokenInput').focus();
+  $('edTokenCancel').addEventListener('click', () => { $('edTokenBox').innerHTML = ''; setStatus(''); });
+  $('edTokenGo').addEventListener('click', () => {
+    const v = $('edTokenInput').value.trim();
+    if (!v) { setStatus('token 是空的。', true); return; }
+    ghToken = v;
+    $('edTokenBox').innerHTML = '';
+    $('edTokenInput') && $('edTokenInput').blur();
+    submit();
+  });
+}
+async function submit() {
+  if (busy) return;
+  if (!draft.length) { toast('还没下笔。左边挑一个工具，在图上描。'); return; }
+  const bad = draft.findIndex(notReady);
+  if (bad >= 0) {
+    selId = draft[bad].properties._id;
+    pending = draft[bad].properties._open ? selId : null;
+    commit();
+    toast('第 ' + (bad + 1) + ' 条还不能交，右边列了要改的地方。');
+    return;
+  }
+  if (!ghToken) { showTokenPanel(); return; }
+
+  const up = upstream();
+  busy = true;
+  $('edSubmit').disabled = true;
+  $('edSubmit').textContent = '递呈中…';
+  try {
+    setStatus('确认身份…');
+    const me = await gh('/user');
+    if (!me.ok) throw new Error(why(me, '确认身份'));
+    const login = me.json.login;
+    if (login !== handle) {
+      handle = login;
+      const n = $('edHandle');
+      if (n) n.value = login;
+    }
+
+    setStatus('看你的 fork…');
+    let fork = await gh('/repos/' + login + '/' + up.repo);
+    if (!fork.ok) {
+      setStatus('还没有 fork，正在建…');
+      const f = await gh('/repos/' + up.owner + '/' + up.repo + '/forks', { method: 'POST' });
+      if (!f.ok) throw new Error(why(f, '建 fork'));
+      for (let i = 0; i < 25; i++) {
+        await sleep(1000);
+        fork = await gh('/repos/' + login + '/' + up.repo);
+        if (fork.ok) break;
+      }
+      if (!fork.ok) throw new Error('fork 建好了但还没就绪，过十几秒再点一次递呈。');
+    }
+
+    const day = stamp();
+    const branch = 'mapdex-' + day + '-' + String(Date.now()).slice(-4);
+    setStatus('取上游 main…');
+    const ref = await gh('/repos/' + up.owner + '/' + up.repo + '/git/ref/heads/main');
+    if (!ref.ok) throw new Error(why(ref, '取上游 main 分支'));
+
+    setStatus('在你的 fork 上开分支…');
+    const cr = await gh('/repos/' + login + '/' + up.repo + '/git/refs',
+      { method: 'POST', body: { ref: 'refs/heads/' + branch, sha: ref.json.object.sha } });
+    if (!cr.ok) throw new Error(why(cr, '开分支'));
+
+    const relPath = 'contributions/' + login + '/' + login + '-' + day + '.geojson';
+    const apiPath = relPath.split('/').map(encodeURIComponent).join('/');
+    const text = JSON.stringify(contribution(), null, 1);
+    const body = {
+      message: '贡献 ' + (draft[0].properties.name || 'geojson') + ' 等 ' + draft.length + ' 条',
+      content: b64(text), branch,
+    };
+    setStatus('写入 ' + relPath + '…');
+    const cur = await gh('/repos/' + login + '/' + up.repo + '/contents/' + apiPath + '?ref=' + encodeURIComponent(branch));
+    if (cur.ok && cur.json && cur.json.sha) body.sha = cur.json.sha;
+    const put = await gh('/repos/' + login + '/' + up.repo + '/contents/' + apiPath, { method: 'PUT', body });
+    if (!put.ok) throw new Error(why(put, '写文件'));
+
+    lastPr = 'https://github.com/' + login + '/' + up.repo + '/compare/' +
+      encodeURIComponent(up.owner) + ':main...' + branch + '?expand=1';
+    setStatus('文件已进你的 fork。最后一下：<a href="' + lastPr + '" target="_blank" rel="noopener">打开 GitHub 的 PR 页面</a> 点 Create pull request。');
+    toast('写好了 ' + relPath + '，去新标签页点最后一下。');
+  } catch (e) {
+    setStatus((e && e.message) || String(e), true);
+    toast('递呈没走完。改动都在本机，修好再点。');
+  } finally {
+    busy = false;
+    $('edSubmit').disabled = false;
+    $('edSubmit').textContent = '递呈 GitHub';
+    chrome();
+  }
+}
+
+/* ---------------- 绑定 ---------------- */
+/* DOM 一侧先接上（地图可能还没就绪），地图事件等 ready 信号再挂 */
+function bindDom() {
+  toggleBtn.addEventListener('click', () => setOpen(!edOpen));
+  $('edClose').addEventListener('click', () => setOpen(false));
+  Array.from(document.querySelectorAll('.ed-tool')).forEach(b =>
+    b.addEventListener('click', () => setTool(b.dataset.tool)));
+  undoBtn.addEventListener('click', undo);
+  exportBtn.addEventListener('click', doExport);
+  $('edSubmit').addEventListener('click', submit);
+  $('edImportBtn').addEventListener('click', () => fileEl.click());
+  fileEl.addEventListener('change', () => { if (fileEl.files[0]) { doImport(fileEl.files[0]); fileEl.value = ''; } });
+  bodyEl.addEventListener('click', e => {
+    const row = e.target.closest('.ed-item');
+    if (row) selectById(row.dataset.id);
+  });
+  document.addEventListener('keydown', e => {
+    if (!edOpen) return;
+    if (e.key === 'Escape') {
+      if (pending) { snapshot(); removeFeature(pending); toast('这条描到一半，先撤掉了。'); }
+      else setOpen(false);
+      return;
+    }
+    const row = e.target && e.target.closest ? e.target.closest('.ed-item') : null;
+    if (row && (e.key === 'Enter' || e.key === ' ')) { selectById(row.dataset.id); e.preventDefault(); return; }
+    if (isEditable()) return;
+    if (e.key === 'Enter' && pending) { finishPending(); e.preventDefault(); return; }
+    if (e.key === 'Delete' || e.key === 'Backspace') { if (selId) removeFeature(selId); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { undo(); e.preventDefault(); return; }
+    const hot = { p: 'poly', l: 'line', o: 'pt', v: 'vertex', t: 'trace', x: 'erase' }[e.key.toLowerCase()];
+    if (hot) setTool(hot);
+  });
+}
+
+function bindMap() {
+  map.on('click', onMapClick);
+  map.on('mousedown', e => {
+    if (!edOpen || tool !== 'vertex') return;
+    const h = pickHandle(e.point);
+    if (!h) return;
+    snapshot();
+    dragging = { id: h.properties._id, vi: h.properties.vi };
+    map.dragPan.disable();
+    map.getCanvas().style.cursor = 'grabbing';
+    paintData();
+  });
+  map.on('mousemove', e => {
+    if (!dragging) return;
+    moveVertex(dragging.id, dragging.vi, [r6(e.lngLat.lng), r6(e.lngLat.lat)]);
+  });
+  map.on('mouseup', () => {
+    if (!dragging) return;
+    dragging = null;
+    map.dragPan.enable();
+    map.getCanvas().style.cursor = 'crosshair';
+    commit();
+  });
+  map.on('dblclick', e => {
+    if (!edOpen || tool !== 'vertex') return;
+    const h = pickHandle(e.point);
+    if (h) dropVertex(h.properties._id, h.properties.vi);
+  });
+
+  // 年份变了 → 勘绘卡的「描哪一年」和预填起止年跟着走（复用时间轴→地图的既有钩子）
+  const baseSync = mapHooks.sync;
+  mapHooks.sync = function () {
+    if (baseSync) baseSync.apply(null, arguments);
+    if (edOpen) chrome();
+  };
+
+  const rebuild = () => { buildLayers(); if (edOpen) traceStyle(true); paintData(); };
+  if (map.loaded()) rebuild();
+  map.on('load', rebuild);
+  map.on('style.load', rebuild);
+}
+
+restore();
+bindDom();
+if (map) bindMap();
+window.addEventListener('mapdex-map-ready', () => {
+  if (map) return;
+  map = window.__map;
+  if (map) bindMap();
+});
 </script>
 
 <script>
