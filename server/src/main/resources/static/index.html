@@ -1580,10 +1580,14 @@ function updateEventPanel() {
   const cats = [...state.activeCats].sort().join(',');
   // 精确到当年模式按年粒度刷新，窗口模式以 5 年为粒度，避免拖动时间轴时高频重建列表
   const key = `${epMode === 2 ? cy : Math.round(cy / 5) * 5}|${epMode}|${sel}|${cats}`;
+  // 切片清单是异步到货的，不能受下面 key 短路影响，否则永远停在「版图切片 —」
+  if (mapHooks.sliceInfo) {
+    const si = mapHooks.sliceInfo();
+    if (si !== epSliceEl.textContent) epSliceEl.textContent = si;
+  }
   if (key === _epKey) return;
   _epKey = key;
 
-  if (mapHooks.sliceInfo) epSliceEl.textContent = mapHooks.sliceInfo();
   epRangeEl.textContent = epMode === 2
     ? yearToStr(cy)
     : `${yearToStrShort(lo)} ~ ${yearToStrShort(hi)}`;
@@ -3639,6 +3643,9 @@ if (maplibregl) {
         // 清单走 /api/eras/index.json：GitHub Pages 静态镜像里 api/eras 是切片目录，
         // 文件系统同名文件与目录不能共存（后端两种路径都兼容）
         erasManifest = await (await fetch(API_BASE + 'eras/index.json')).json();
+        // 清单是异步到货的：时间轴画面此时多半静止、按需渲染不会自己跑，
+        // 补一刀让事件栏的「版图切片 · X年」徽章立刻刷出来
+        requestRender();
       } catch (e) {
         console.error('版图清单加载失败', e);
         btn.disabled = true;
