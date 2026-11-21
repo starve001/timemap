@@ -1136,7 +1136,6 @@ body.ed-on .ed-card { display: flex; }
    前台约 60fps；后台自动降频兜底，保证版图/城市/事件数据切换始终能上屏。 */
 (function () {
   var cbs = new Set();
-  window.__rAF = cbs;
   window.requestAnimationFrame = function (cb) { cbs.add(cb); return cb; };
   window.cancelAnimationFrame = function (id) { cbs.delete(id); };
   function pump(t) {
@@ -1474,8 +1473,6 @@ const state = {
 /* 地图模块挂载点（module script 就绪后填充） */
 const mapHooks = {
   sync: null,          // 时间轴变化 → 更新地图显示窗口
-  applyCats: null,     // 分类筛选变化 → 更新地图过滤
-  setSelected: null,   // 选中事件 → 更新地图高亮环
   flyToIdx: null,      // 飞行定位到事件
   viewHash: null,      // 地图视图 → hash 字符串
   applyViewHash: null, // 从 hash 恢复地图视图
@@ -1559,7 +1556,6 @@ function recomputeFiltered() {
     .filter(x => state.activeCats.has(x.e.cat))
     .sort((a, b) => a.e.year - b.e.year)
     .map(x => x.i);
-  if (mapHooks.applyCats) mapHooks.applyCats();
 }
 
 /* ============================================================
@@ -1730,9 +1726,13 @@ function render() {
   ctx.restore();
 
   const cy = Math.round(currentYear());
-  // 鎏金铭牌：朝代词小字 + 衬线大数字（innerHTML 的内容全部由数字/常量构成）
-  centerEl.innerHTML = '<span class="cy-era">' + (cy < 0 ? '公元前' : '公元') + '</span>' +
-    '<span class="cy-num">' + Math.abs(cy) + '</span><span class="cy-unit">年</span>';
+  // 鎏金铭牌：朝代词小字 + 衬线大数字（innerHTML 的内容全部由数字/常量构成）；
+  // 年份没变就不重写——播放时 60fps 全量 innerHTML 是无谓的 DOM 抖动
+  if (centerEl.dataset.cy !== String(cy)) {
+    centerEl.dataset.cy = String(cy);
+    centerEl.innerHTML = '<span class="cy-era">' + (cy < 0 ? '公元前' : '公元') + '</span>' +
+      '<span class="cy-num">' + Math.abs(cy) + '</span><span class="cy-unit">年</span>';
+  }
   // 跳转覆盖年份时，指针滑到该年份的屏幕位置
   if (centerPtr) {
     if (state.viewYear !== null) {
@@ -1748,17 +1748,21 @@ function render() {
   updateEventPanel();
 }
 
+let _endFade = null;
 function drawEndFade(W, H) {
-  const gL = ctx.createLinearGradient(0, 0, 30, 0);
-  gL.addColorStop(0, 'rgba(15,22,36,1)');
-  gL.addColorStop(1, 'rgba(15,22,36,0)');
-  ctx.fillStyle = gL;
+  // 端部遮罩渐变按尺寸缓存：拖拽/播放时每帧重绘，不能每帧重建对象
+  if (!_endFade || _endFade.w !== W || _endFade.h !== H) {
+    const gL = ctx.createLinearGradient(0, 0, 30, 0);
+    gL.addColorStop(0, 'rgba(15,22,36,1)');
+    gL.addColorStop(1, 'rgba(15,22,36,0)');
+    const gR = ctx.createLinearGradient(W - 30, 0, W, 0);
+    gR.addColorStop(0, 'rgba(15,22,36,0)');
+    gR.addColorStop(1, 'rgba(15,22,36,1)');
+    _endFade = { w: W, h: H, gL, gR };
+  }
+  ctx.fillStyle = _endFade.gL;
   ctx.fillRect(0, 0, 30, H);
-
-  const gR = ctx.createLinearGradient(W - 30, 0, W, 0);
-  gR.addColorStop(0, 'rgba(15,22,36,0)');
-  gR.addColorStop(1, 'rgba(15,22,36,1)');
-  ctx.fillStyle = gR;
+  ctx.fillStyle = _endFade.gR;
   ctx.fillRect(W - 30, 0, 30, H);
 }
 
@@ -1823,14 +1827,16 @@ function drawAxis(axisY, W, H) {
   ctx.restore();
 }
 
+let _bp = null, _bpKey = null;
 function drawTicks(yL, yR, step, axisY, kind, W, H) {
-  // 世纪界碑竖带渐变整场共用一份（拖拽时每帧重绘，渐变对象须避免在循环内重建）
-  let _bp = null;
+  // 世纪界碑竖带渐变按 axisY×H 键控缓存（原来 let _bp 写在函数体内，等于每帧重建）
   const bpGrad = () => {
-    if (!_bp) {
+    const key = axisY + '×' + H;
+    if (!_bp || _bpKey !== key) {
       _bp = ctx.createLinearGradient(0, axisY, 0, H - 12);
       _bp.addColorStop(0, 'rgba(201,162,75,.10)');
       _bp.addColorStop(1, 'rgba(201,162,75,0)');
+      _bpKey = key;
     }
     return _bp;
   };
@@ -2142,7 +2148,8 @@ function renderMinimap() {
 
   const sY = Math.round(pxToYear(state.scrollLeft));
   const eY = Math.round(pxToYear(state.scrollLeft + vw));
-  document.getElementById('mmRange').textContent =
+  const mmEl = renderMinimap._mmEl || (renderMinimap._mmEl = document.getElementById('mmRange'));
+  mmEl.textContent =
     `视口：${yearToStrShort(sY)} → ${yearToStrShort(eY)}`;
 }
 
@@ -2339,6 +2346,7 @@ function start() {
       state.pinchActive = false;
       touchState.active = false;
       requestRender();
+      scheduleHash();
     }
   });
 
@@ -2364,6 +2372,7 @@ function start() {
       state.scrollLeft = clamp(pct * contentWidth() - state.cw / 2, 0, maxScroll());
     }
     requestRender();
+    scheduleHash();
   }
   miniCvs.addEventListener('pointerdown', (e) => { miniDrag = true; miniJump(e); });
   miniCvs.addEventListener('pointermove', (e) => { if (miniDrag) miniJump(e); });
@@ -2441,7 +2450,7 @@ function start() {
     if (e.code === 'Space' && !e.repeat &&
         !['BUTTON'].includes(document.activeElement.tagName)) {
       e.preventDefault();
-      playToggle.click();
+      document.getElementById('playToggle').click(); // 别靠 id 隐式全局，改名/移除就静默断裂
       return;
     }
     // 「/」或 Ctrl/Cmd+K 聚焦搜索
@@ -2513,6 +2522,15 @@ function applyHashStartYear() {
   state._hashStartYear = undefined;
 }
 
+/* 已开页面粘了新深链（或点了新共享链接）：hashchange 重应用年份/分类/地图视图。
+   本站写 hash 走 history.replaceState，不触发此事件，不会自激。 */
+window.addEventListener('hashchange', () => {
+  applyHashOnLoad();
+  applyHashStartYear();
+  if (mapHooks.applyViewHash) mapHooks.applyViewHash();
+  requestRender();
+});
+
 /* URL hash 写入（节流） */
 let _hashTimer = 0;
 function scheduleHash() {
@@ -2531,9 +2549,19 @@ function writeHash() {
     // 斜杠编码成 %2F，门户跳板的深链正则只认裸 /，分享出去的链接会失配
     let q = 'y=' + encodeURIComponent(cy);
     if (!all) q += '&c=' + encodeURIComponent(cats);
-    if (mh) q += '&map=' + mh; // 仅数字/点/斜杠，hash 内合法且可读
-    if (ef === '0') q += '&e=0'; // 关闭状态才写入，缺省=开启
-    if (ff) q += '&f=' + encodeURIComponent(ff);
+    if (mh) {
+      q += '&map=' + mh; // 仅数字/点/斜杠，hash 内合法且可读
+      if (ef === '0') q += '&e=0'; // 关闭状态才写入，缺省=开启
+      if (ff) q += '&f=' + encodeURIComponent(ff);
+    } else {
+      // 地图模块未就绪（顶层 await 的降级加载可拖数秒）：hook 全空，
+      // 保留原 hash 里的 map/e/f，别把深链抹成只有 y
+      const cur = location.hash.replace(/^#/, '');
+      ['map', 'e', 'f'].forEach(k => {
+        const m = cur.match(new RegExp('(?:^|&)' + k + '=([^&]*)'));
+        if (m) q += '&' + k + '=' + m[1];
+      });
+    }
     history.replaceState(null, '', '#' + q);
   } catch (_) {}
 }
@@ -2551,6 +2579,7 @@ function zoomAt(mx, factor) {
   state.scrollLeft = clamp(state.scrollLeft, 0, maxScroll());
   cancelAnim();
   requestRender();
+  scheduleHash(); // 缩放后视图变了，hash 得跟上（否则分享链接视图错位）
 }
 
 const PLAY_YRS_PER_SEC = 45; // 1× 速度：每秒推进 45 年
@@ -2724,7 +2753,6 @@ function handleClick(mx, my, clientX, clientY) {
   const idx = pickEvent(mx, my);
   if (idx < 0) {
     state.selectedIdxs.clear();
-    if (mapHooks.setSelected) mapHooks.setSelected(-1);
     requestRender();
     return;
   }
@@ -2736,31 +2764,17 @@ function handleClick(mx, my, clientX, clientY) {
   wrap.appendChild(r);
   setTimeout(() => r.remove(), 750);
 
-  const targetPx = yearToPx(EVENTS[idx].year) - state.cw / 2;
-  smoothScrollTo(targetPx, { dur: 620 });
   state.selectedIdxs = new Set([idx]);
-  if (mapHooks.setSelected) mapHooks.setSelected(idx);
   setHover(-1);
+
+  // 全跨度视图下时间轴没有行程，smoothScrollTo 会被 clamp 到跨度中点——
+  // 弹窗是所点事件，徽章/地图却跳到中点年份。直接拨 viewYear，与 goToYear 对齐。
+  if (maxScroll() < 8) state.viewYear = EVENTS[idx].year;
+  else smoothScrollTo(yearToPx(EVENTS[idx].year) - state.cw / 2, { dur: 620 });
 
   setTimeout(() => openModal(idx), 220);
   requestRender();
-}
-
-/* 地图点击事件点 → 复用选中逻辑（由 module 脚本调用） */
-function selectEventFromMap(idx) {
-  const e = EVENTS[idx];
-  if (!e) return;
-  if (!state.activeCats.has(e.cat)) {
-    state.activeCats.add(e.cat);
-    const btn = catBox.querySelector(`[data-cat="${e.cat}"]`);
-    if (btn) btn.classList.add('active');
-    recomputeFiltered();
-  }
-  state.selectedIdxs = new Set([idx]);
-  if (mapHooks.setSelected) mapHooks.setSelected(idx);
-  smoothScrollTo(yearToPx(e.year) - state.cw / 2, { dur: 620 });
-  openModal(idx);
-  requestRender();
+  scheduleHash();
 }
 
 /* 详情卡片 */
@@ -2786,7 +2800,6 @@ function openModal(idx) {
     document.getElementById('mLocate').addEventListener('click', () => {
       closeModal();
       state.selectedIdxs = new Set([idx]);
-      if (mapHooks.setSelected) mapHooks.setSelected(idx);
       if (mapHooks.flyToIdx) mapHooks.flyToIdx(idx);
       requestRender();
     });
@@ -2850,6 +2863,7 @@ function closeModal() {
  * 模块九：跳转 & 搜索
  * ============================================================ */
 function goToYear(year, fitToDecade) {
+  if (state.playing) stopPlay(); // 播放中跳转：playYear 每帧覆写会吞掉本次定位
   year = clamp(Math.round(year), MIN_YEAR, MAX_YEAR);
   state.highlightYear = year;
   state.highlightUntil = performance.now() + 1800;
@@ -2895,7 +2909,6 @@ function goToEvent(idx, zoomIn) {
     recomputeFiltered();
   }
   state.selectedIdxs = new Set([idx]);
-  if (mapHooks.setSelected) mapHooks.setSelected(idx);
   goToYear(e.year, !!zoomIn);
   if (mapHooks.flyToIdx) mapHooks.flyToIdx(idx);
   setTimeout(() => openModal(idx), 700);
@@ -3006,17 +3019,21 @@ function updateSuggest() {
  * ============================================================ */
 window.__dataReady = (async () => {
   try {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 15000); // 后端挂起（TCP 不响应）时兜底，别让启动链永远悬着
     const [ev, ci] = await Promise.all([
-      fetch(API_BASE + 'events').then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
-      fetch(API_BASE + 'cities').then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
+      fetch(API_BASE + 'events', { signal: ac.signal }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
+      fetch(API_BASE + 'cities', { signal: ac.signal }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
     ]);
+    clearTimeout(timer);
     EVENTS = ev; CITIES = ci;
     return true;
   } catch (err) {
     console.error('事件/城市数据加载失败', err);
     const d = document.createElement('div');
     d.style.cssText = 'position:fixed;left:50%;top:16%;transform:translateX(-50%);z-index:99;background:#2a2320;color:#f2bcb2;border:1px solid rgba(192,107,94,.6);padding:10px 18px;border-radius:8px;font-size:13px;line-height:1.6;box-shadow:0 6px 24px rgba(0,0,0,.4);';
-    d.innerHTML = '数据接口不可用：请确认后端服务已启动（双击「启动地图.bat」）<br><span style="opacity:.65">GET /api/events 失败</span>';
+    const why = err && err.name === 'AbortError' ? '15 秒无响应已超时' : 'GET /api/events 失败';
+    d.innerHTML = '数据接口不可用：请确认后端服务已启动（双击「启动地图.bat」）<br><span style="opacity:.65">' + why + '</span>';
     document.body.appendChild(d);
     return false;
   }
@@ -3095,6 +3112,9 @@ if (maplibregl) {
      { source:'mapdex-portal', type:'goto', year, lng?, lat?, zoom? } → 年份跳转 + 飞行定位
      { source:'mapdex-portal', type:'ai' }                            → 展开 AI 助手面板 */
   window.addEventListener('message', (e) => {
+    // 只收同源消息：门户与舆图同源部署；`source` 字段不是安全边界，
+    // 任何第三方页面 embed 本页都不许驱动跳转/拉起面板
+    if (e.origin !== location.origin) return;
     const d = e.data;
     if (!d || d.source !== 'mapdex-portal') return;
     if (d.type === 'goto' && typeof d.year === 'number') {
@@ -3294,18 +3314,12 @@ if (maplibregl) {
     mapReady = true;
     mapError.classList.remove('show');
     softenBasemap();
-    if (mapHooks.applyCats) mapHooks.applyCats();
     if (mapHooks.sync) mapHooks.sync(true);
     if (erasRequested) setEras(true); // 从 hash 恢复版图图层
     if (focusRequested) {
       focusOn = true;
       const ftb = document.getElementById('focusToggle');
       if (ftb) ftb.classList.add('on');
-      mapHooks.applyCats();
-    }
-    if (state.selectedIdxs.size) {
-      const first = [...state.selectedIdxs][0];
-      if (mapHooks.setSelected) mapHooks.setSelected(first);
     }
     } catch (err) {
       window.__mapErrors.push('load-handler: ' + (err && err.message || err));
@@ -3357,14 +3371,6 @@ if (maplibregl) {
     updateEra(); updateCities();
   };
 
-  mapHooks.applyCats = () => {
-    // 事件不再渲染在地图上；分类筛选由右侧事件栏消费（经典脚本 recomputeFiltered）
-  };
-
-  mapHooks.setSelected = (idx) => {
-    // 事件选中高亮由右侧事件栏承担
-  };
-
   mapHooks.sliceInfo = () => {
     if (!erasManifest) return '版图切片 —';
     const era = pickEraYear(currentYear());
@@ -3387,6 +3393,18 @@ if (maplibregl) {
   mapHooks.viewHash = () => {
     const c = map.getCenter(), z = map.getZoom();
     return `${z.toFixed(2)}/${c.lng.toFixed(2)}/${c.lat.toFixed(2)}`;
+  };
+
+  // hashchange（已开页面粘新深链）时同步地图视图；初始加载不走这里
+  mapHooks.applyViewHash = () => {
+    try {
+      const mh = new URLSearchParams(location.hash.replace(/^#/, '')).get('map');
+      if (!mh) return;
+      const [z, lon, lat] = mh.split('/').map(Number);
+      if ([z, lon, lat].every(v => typeof v === 'number' && isFinite(v))) {
+        map.jumpTo({ zoom: clampN(z, 0, 12), center: [lon, lat] });
+      }
+    } catch (_) {}
   };
 
   /* ---------- 地图交互 ---------- */
@@ -3468,6 +3486,8 @@ if (maplibregl) {
     erasLoading = (async () => {
       try {
         const fc = await loadEraData(era);
+        // await 期间用户可能已把图层关掉/地图已卸：丢弃结果，别让灭着的按钮底下上屏版图
+        if (!erasOn || !mapReady) return;
         // 政权名标注：取面积最大的政权（排除泛称人群/文化），标在版图重心
         // 显示名链：_nz（数据侧考据）→ zhPolityName（L1/L2 表）→ 英文源名
         const displayZh = p => p._nz || zhPolityName(p.NAME) || p.NAME;
@@ -3644,7 +3664,6 @@ if (maplibregl) {
   });
   mapHooks.erasFlag = () => (erasOn ? null : '0');
   mapHooks.focusFlag = () => (focusOn ? '1' : null);
-  mapHooks.erasSet = (v) => { setEras(v); };
 
   /* ---------- 历史名城按年代筛选 ---------- */
   let citiesSig = '';
@@ -3839,8 +3858,16 @@ function restore() {
   try { s = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch (e) {}
   if (!s) return;
   handle = s.handle || '';
-  draft = Array.isArray(s.draft) ? s.draft : [];
-  refs = Array.isArray(s.refs) ? s.refs : [];
+  // 逐条验几何：手改/旧版本残留/配额截断的脏数据会把 paintData/issues 炸掉，
+  // 表现为勘绘台打不开且无提示——宁可丢弃并告知
+  const ok = f => f && f.type === 'Feature' && f.properties &&
+    f.properties._id != null &&
+    f.geometry && ['Point', 'LineString', 'Polygon'].includes(f.geometry.type);
+  const before = (Array.isArray(s.draft) ? s.draft.length : 0) + (Array.isArray(s.refs) ? s.refs.length : 0);
+  draft = Array.isArray(s.draft) ? s.draft.filter(ok) : [];
+  refs = Array.isArray(s.refs) ? s.refs.filter(ok) : [];
+  const dropped = before - draft.length - refs.length;
+  if (dropped > 0) toast('本机草稿有 ' + dropped + ' 条数据已损坏，丢弃了');
   if (draft.length || refs.length) toast('已接上本机未导出的 ' + draft.length + ' 条草稿');
 }
 
@@ -4572,7 +4599,7 @@ function bindDom() {
   document.addEventListener('keydown', e => {
     if (!edOpen) return;
     if (e.key === 'Escape') {
-      if (pending) { snapshot(); removeFeature(pending); toast('这条描到一半，先撤掉了。'); }
+      if (pending) { removeFeature(pending); toast('这条描到一半，先撤掉了。'); } // removeFeature 内部已有快照，别再来一次把撤销搞成两步
       else setOpen(false);
       return;
     }
@@ -4825,22 +4852,27 @@ window.addEventListener('mapdex-map-ready', () => {
     append('user', q);
     input.value = '';
     setBusy(true);
+    var ac = new AbortController();
+    var timer = setTimeout(function () { ac.abort(); }, 60000); // 后端挂起兜底：超时放行，别让输入框永久禁用
     fetch(API_BASE + 'ai/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: q })
+      body: JSON.stringify({ message: q }),
+      signal: ac.signal
     }).then(function (r) {
       return r.json().then(function (d) { return { ok: r.ok, d: d }; })
         .catch(function () { return { ok: false, d: { error: '服务异常（HTTP ' + r.status + '）' } }; });
     }).then(function (res) {
+      clearTimeout(timer);
       setBusy(false);
       if (!res.ok) { append('error', res.d && res.d.error ? res.d.error : 'AI 调用失败'); return; }
       var d = res.d;
       var m = append('bot', d.answer || '(空回答)');
       if (d.eventIndex != null || d.year != null) addLocate(m, d.year, d.event, d.eventIndex);
     }).catch(function (err) {
+      clearTimeout(timer);
       setBusy(false);
-      append('error', '网络错误：' + err.message);
+      append('error', err.name === 'AbortError' ? 'AI 超时（60 秒无响应），稍后再试' : '网络错误：' + err.message);
     });
   }
 
