@@ -3022,22 +3022,38 @@ function updateSuggest() {
  * 模块十：启动（数据经后端 REST API 按需加载）
  * ============================================================ */
 window.__dataReady = (async () => {
+  // 逐 URL 独立重试：某份数据被 CDN 卡住时只重试它自己，不拖累另一份。
+  // 实测 Pages 对无扩展名路径偶发 2~8s 吐 123KB 甚至整体挂起——所以前端
+  // 走 .json 路径，并允许每份数据独立重试三轮。
+  const fetchJson = async (url, timeout, attempts) => {
+    for (let i = 1; i <= attempts; i++) {
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), timeout);
+      try {
+        const r = await fetch(url, { signal: ac.signal });
+        clearTimeout(timer);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return await r.json();
+      } catch (e) {
+        clearTimeout(timer);
+        if (i === attempts) throw e;
+        await new Promise(res => setTimeout(res, 1200)); // 歇一下再试，抖动通常一两轮就过
+      }
+    }
+  };
   try {
-    const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), 15000); // 后端挂起（TCP 不响应）时兜底，别让启动链永远悬着
     const [ev, ci] = await Promise.all([
-      fetch(API_BASE + 'events', { signal: ac.signal }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
-      fetch(API_BASE + 'cities', { signal: ac.signal }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
+      fetchJson(API_BASE + 'events.json', 15000, 3),
+      fetchJson(API_BASE + 'cities.json', 15000, 3),
     ]);
-    clearTimeout(timer);
     EVENTS = ev; CITIES = ci;
     return true;
   } catch (err) {
     console.error('事件/城市数据加载失败', err);
     const d = document.createElement('div');
     d.style.cssText = 'position:fixed;left:50%;top:16%;transform:translateX(-50%);z-index:99;background:#2a2320;color:#f2bcb2;border:1px solid rgba(192,107,94,.6);padding:10px 18px;border-radius:8px;font-size:13px;line-height:1.6;box-shadow:0 6px 24px rgba(0,0,0,.4);';
-    const why = err && err.name === 'AbortError' ? '15 秒无响应已超时' : 'GET /api/events 失败';
-    d.innerHTML = '数据接口不可用：请确认后端服务已启动（双击「启动地图.bat」）<br><span style="opacity:.65">' + why + '</span>';
+    const why = err && err.name === 'AbortError' ? '多次重试后仍超时' : 'GET /api/events.json 失败';
+    d.innerHTML = '数据接口不可用：请确认后端服务已启动（双击「启动地图.bat」），或稍后刷新重试<br><span style="opacity:.65">' + why + '</span>';
     document.body.appendChild(d);
     return false;
   }

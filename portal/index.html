@@ -319,8 +319,8 @@ a { color: inherit; }
  * ============================================================ */
 
 /* [可替换 1] 数据源：同源部署（/timemap/portal/）取 ../api/events；
-   门户独立部署时改为 'https://starve001.github.io/timemap/api/events' */
-const DATA_URL = '../api/events';
+   门户独立部署时改为 'https://starve001.github.io/timemap/api/events.json' */
+const DATA_URL = '../api/events.json'; // 带后缀：无扩展名路径被 CDN 偶发卡顿
 const ERAS_URL = '../api/eras/index.json';
 const ATLAS_BASE = '../app/';
 const MIN_YEAR = -221, MAX_YEAR = 1918;

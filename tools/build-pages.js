@@ -49,14 +49,17 @@ fs.writeFileSync(path.join(SITE, 'index.html'), `<!DOCTYPE html>
 </script>
 `);
 
-// REST API → 静态文件
+// REST API → 静态文件（无扩展名与 .json 双份：前端走 .json，
+// 无扩展名保留给旧深链与外部引用；CDN 对无扩展名路径偶发卡顿）
 fs.copyFileSync(path.join(ROOT, 'events.json'), path.join(API, 'events'));
+fs.copyFileSync(path.join(ROOT, 'events.json'), path.join(API, 'events.json'));
 // 根路径数据副本：外部门户跨站 fetch 时取 /timemap/events.json 更直观
 fs.copyFileSync(path.join(ROOT, 'events.json'), path.join(SITE, 'events.json'));
 
 // 策展门户（影院大堂）：portal/ → site/portal/，与舆图同源
 fs.cpSync(path.join(ROOT, 'portal'), path.join(SITE, 'portal'), { recursive: true });
 fs.copyFileSync(path.join(ROOT, 'data/cities.json'), path.join(API, 'cities'));
+fs.copyFileSync(path.join(ROOT, 'data/cities.json'), path.join(API, 'cities.json'));
 
 // 社区贡献合并 → api/contributions.json（与后端 /api/contributions 同构）。
 // contributions/ 不存在或为空则跳过——前端 404 即静默降级，没有叠加层。

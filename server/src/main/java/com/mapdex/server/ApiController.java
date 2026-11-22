@@ -42,12 +42,13 @@ public class ApiController {
         return m;
     }
 
-    @GetMapping(value = "/api/events", produces = "application/json;charset=UTF-8")
+    /** .json 别名：无扩展名路径在 CDN 偶发被卡（实测 123KB 吐 2~8s），带后缀走正常缓存路径 */
+    @GetMapping(value = {"/api/events", "/api/events.json"}, produces = "application/json;charset=UTF-8")
     public ResponseEntity<byte[]> events(@RequestHeader(value = "If-None-Match", required = false) String inm) {
         return serve(store.events(), inm);
     }
 
-    @GetMapping(value = "/api/cities", produces = "application/json;charset=UTF-8")
+    @GetMapping(value = {"/api/cities", "/api/cities.json"}, produces = "application/json;charset=UTF-8")
     public ResponseEntity<byte[]> cities(@RequestHeader(value = "If-None-Match", required = false) String inm) {
         return serve(store.cities(), inm);
     }
