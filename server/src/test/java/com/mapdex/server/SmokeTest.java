@@ -116,4 +116,42 @@ class SmokeTest {
         assertEquals(HttpStatus.OK, ci.getStatusCode());
         assertTrue(mapper.readTree(ci.getBody()).size() > 0);
     }
+
+    @Test
+    void basemapVectorAndReliefServed() throws Exception {
+        HttpHeaders jsonAccept = new HttpHeaders();
+        jsonAccept.setAccept(java.util.List.of(MediaType.APPLICATION_JSON));
+        ResponseEntity<String> vec = http.exchange("/api/basemap/natural-earth.geojson", HttpMethod.GET,
+                new HttpEntity<>(jsonAccept), String.class);
+        assertEquals(HttpStatus.OK, vec.getStatusCode());
+        JsonNode fc = mapper.readTree(vec.getBody());
+        assertEquals("FeatureCollection", fc.path("type").asText());
+        assertTrue(fc.path("features").size() > 100, "自然底图要素不应为空");
+        java.util.Set<String> kinds = new java.util.HashSet<>();
+        for (JsonNode f : fc.path("features")) {
+            kinds.add(f.path("properties").path("k").asText());
+        }
+        assertTrue(kinds.contains("land") && kinds.contains("river")
+                && kinds.contains("lake") && kinds.contains("grat"), "缺少底图分类: " + kinds);
+
+        ResponseEntity<byte[]> tile = http.getForEntity("/api/basemap/relief/0/0/0.webp", byte[].class);
+        assertEquals(HttpStatus.OK, tile.getStatusCode());
+        MediaType ct = tile.getHeaders().getContentType();
+        assertTrue(ct != null && ct.toString().startsWith("image/webp"), "Content-Type: " + ct);
+        assertNotNull(tile.getBody());
+        assertTrue(tile.getBody().length > 100, "WebP 瓦片体积异常");
+
+        ResponseEntity<byte[]> bad = http.getForEntity("/api/basemap/relief/9/0/0.webp", byte[].class);
+        assertEquals(HttpStatus.NOT_FOUND, bad.getStatusCode());
+    }
+
+    @Test
+    void contributionsJsonAlias() throws Exception {
+        for (String path : new String[]{"/api/contributions", "/api/contributions.json"}) {
+            ResponseEntity<String> r = http.getForEntity(path, String.class);
+            assertEquals(HttpStatus.OK, r.getStatusCode());
+            JsonNode fc = mapper.readTree(r.getBody());
+            assertEquals("FeatureCollection", fc.path("type").asText());
+        }
+    }
 }

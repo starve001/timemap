@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.lang.management.ManagementFactory;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  * REST API：
@@ -68,7 +69,7 @@ public class ApiController {
     }
 
     /** 社区贡献合并（contributions/ 缺失或为空时返回空 FeatureCollection） */
-    @GetMapping(value = "/api/contributions", produces = "application/geo+json;charset=UTF-8")
+    @GetMapping(value = {"/api/contributions", "/api/contributions.json"}, produces = "application/geo+json;charset=UTF-8")
     public ResponseEntity<byte[]> contributions(@RequestHeader(value = "If-None-Match", required = false) String inm) {
         return serve(store.contributions(), inm);
     }
@@ -77,6 +78,33 @@ public class ApiController {
     @GetMapping(value = {"/api/geography", "/api/geography.json"}, produces = "application/geo+json;charset=UTF-8")
     public ResponseEntity<byte[]> geography(@RequestHeader(value = "If-None-Match", required = false) String inm) {
         return serve(store.geography(), inm);
+    }
+
+    /** 自托管 Natural Earth 纯自然矢量底图（兼容 MapLibre Worker 的 Accept: application/json） */
+    @GetMapping(value = "/api/basemap/natural-earth.geojson",
+            produces = {"application/geo+json;charset=UTF-8", "application/json;charset=UTF-8"})
+    public ResponseEntity<byte[]> basemapVector(@RequestHeader(value = "If-None-Match", required = false) String inm) {
+        DataStore.Cached c = store.basemapVector();
+        if (c == null) return ResponseEntity.notFound().build();
+        return serve(c, inm);
+    }
+
+    /** 自托管 Natural Earth 暗色地形晕渲 WebP 瓦片 */
+    @GetMapping(value = "/api/basemap/relief/{z}/{x}/{y}.webp", produces = "image/webp")
+    public ResponseEntity<byte[]> basemapRelief(@PathVariable int z,
+                                                @PathVariable int x,
+                                                @PathVariable int y,
+                                                @RequestHeader(value = "If-None-Match", required = false) String inm) {
+        DataStore.Cached c = store.basemapReliefTile(z, x, y);
+        if (c == null) return ResponseEntity.notFound().build();
+        String etag = c.etag();
+        HttpHeaders h = new HttpHeaders();
+        h.setCacheControl(CacheControl.maxAge(86400, TimeUnit.SECONDS).cachePublic());
+        h.setETag(etag);
+        if (inm != null && inm.contains(etag)) {
+            return new ResponseEntity<>(h, HttpStatus.NOT_MODIFIED);
+        }
+        return new ResponseEntity<>(c.body(), h, HttpStatus.OK);
     }
 
     @GetMapping(value = "/healthz", produces = "application/json;charset=UTF-8")

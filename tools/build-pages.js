@@ -66,7 +66,13 @@ if (fs.existsSync(path.join(ROOT, 'data/geography.json'))) {
   fs.copyFileSync(path.join(ROOT, 'data/geography.json'), path.join(API, 'geography.json'));
 }
 
-// 社区贡献合并 → api/contributions.json（与后端 /api/contributions 同构）。
+// 自托管 Natural Earth 自然矢量底图与暗色地形晕渲瓦片
+const BASEMAP_DIR = path.join(ROOT, 'data/basemap');
+if (fs.existsSync(BASEMAP_DIR)) {
+  fs.cpSync(BASEMAP_DIR, path.join(API, 'basemap'), { recursive: true });
+}
+
+// 社区贡献合并 → api/contributions.json & api/contributions（与后端同构）。
 // contributions/ 不存在或为空则跳过——前端 404 即静默降级，没有叠加层。
 const CONTRIB_DIR = path.join(ROOT, 'contributions');
 if (fs.existsSync(CONTRIB_DIR)) {
@@ -87,8 +93,9 @@ if (fs.existsSync(CONTRIB_DIR)) {
     });
   })(CONTRIB_DIR);
   if (contribFeats.length) {
-    fs.writeFileSync(path.join(API, 'contributions.json'),
-      JSON.stringify({ type: 'FeatureCollection', features: contribFeats }));
+    const contribJson = JSON.stringify({ type: 'FeatureCollection', features: contribFeats });
+    fs.writeFileSync(path.join(API, 'contributions.json'), contribJson);
+    fs.writeFileSync(path.join(API, 'contributions'), contribJson);
     console.log(`  · 社区贡献 ${contribFeats.length} 条已并入叠加层`);
   }
 }

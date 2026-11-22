@@ -97,7 +97,9 @@ mapdex/
 │   ├── pom.xml              # Maven 配置
 │   └── build.bat            # Windows 构建脚本
 ├── data/                    # 运行时数据
+│   ├── basemap/             # 同源自托管自然底图（Natural Earth 矢量 + 暗色地形晕渲 WebP）
 │   ├── eras/                # 39 个版图切片（world_*.geojson）+ 中文名对照表
+│   ├── geography.json       # 历史河渠山川（江河运河随年代显隐）
 │   └── cities.json          # 城市数据
 ├── events.json              # 历史事件库（304 条，公元前 221 年 ~ 公元 1918 年）
 ├── tools/                   # 数据处理脚本（切片构建 / 中文名注入 / 数据校验）
@@ -116,6 +118,7 @@ mapdex/
 
 ## 数据来源与授权
 
+- **自然底图**：全部默认底图（陆地海岸线、浅海大陆架、大型湖泊、全球大河、经纬网及暗色地形晕渲瓦片）均同源自托管自 **[Natural Earth](https://www.naturalearthdata.com/)**，属 **Public Domain**，由 `tools/build-basemap.py` 离线构建（裁除中国东部现代河道以避免与历史黄河改道冲突）；工具栏可选「🗺 现代参考」开关按需叠加 CARTO 暗色现代底图（`© OpenStreetMap contributors · © CARTO`）
 - 全部政权版图数据派生自 **[Cliopatria](https://github.com/Seshat-Global-History-Databank/cliopatria)**（Seshat 全球历史数据库，覆盖 3400 BCE – 2024 CE 全球政区），遵循 **CC BY 4.0** 许可
 - 原始数据 `cliopatria_polities_only.geojson`（约 165 MB）因超出 GitHub 单文件限制未随仓库分发；需要重新构建切片时，请从 [Cliopatria 仓库](https://github.com/Seshat-Global-History-Databank/cliopatria) 或 [Zenodo](https://zenodo.org/records/13363121) 下载后放入 `tools/cliopatria/` 目录
 - 历史事件为人工整理编写
@@ -124,4 +127,5 @@ mapdex/
 
 ## 致谢
 
-[Cliopatria / Seshat Global History Databank](https://seshatdatabank.info/) — 全球历史政区开源数据集
+- [Natural Earth](https://www.naturalearthdata.com/) — 全球公有领域自然地理矢量与晕渲地形数据集
+- [Cliopatria / Seshat Global History Databank](https://seshatdatabank.info/) — 全球历史政区开源数据集

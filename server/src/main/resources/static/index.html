@@ -1195,7 +1195,8 @@ body.ed-on .ed-card { display: flex; }
         <button class="layer-btn" id="focusToggle" title="只显示当前年份±50年的事件">◎ 聚焦当前</button>
         <button class="layer-btn" id="erasToggle" title="叠加当前年代的政权版图（数据随时间轴自动切换）">🏛 政权版图</button>
         <button class="layer-btn on" id="geoToggle" style="display:none" title="叠加历史河渠与山川：江河、运河随年代显隐（黄河改道/隋元运河换线），山脉为走向示意">💧 河渠山川</button>
-        <span class="tl-attr">底图 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors · © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a> · 版图 <a href="https://github.com/Seshat-Global-History-Databank/cliopatria" target="_blank" rel="noopener">Cliopatria</a>/Seshat (CC BY 4.0) · 引擎 MapLibre GL</span>
+        <button class="layer-btn" id="modernToggle" title="按需叠加现代国界与地名参考（CARTO 暗色，古今对照用，默认关闭）">🗺 现代参考</button>
+        <span class="tl-attr">底图 <span id="basemapAttr"><a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a></span> · 版图 <a href="https://github.com/Seshat-Global-History-Databank/cliopatria" target="_blank" rel="noopener">Cliopatria</a>/Seshat (CC BY 4.0) · 引擎 MapLibre GL</span>
       </span>
     </div>
     <div class="tl-body">
@@ -2443,7 +2444,10 @@ function start() {
   /* ---------- 详情弹层 ---------- */
   document.getElementById('closeBtn').addEventListener('click', closeModal);
   mask.addEventListener('click', closeModal);
-  document.getElementById('mapRetry').addEventListener('click', () => location.reload());
+  document.getElementById('mapRetry').addEventListener('click', () => {
+    try { sessionStorage.removeItem('mapdex-reload'); } catch (_) {}
+    location.reload();
+  });
   window.addEventListener('keydown', (e) => {
     const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName);
     if (e.key === 'Escape') {
@@ -2550,6 +2554,7 @@ function writeHash() {
     const mh = mapHooks.viewHash ? mapHooks.viewHash() : null;
     const ef = mapHooks.erasFlag ? mapHooks.erasFlag() : null;
     const ff = mapHooks.focusFlag ? mapHooks.focusFlag() : null;
+    const mf = mapHooks.modernFlag ? mapHooks.modernFlag() : null;
     // 手拼查询串而不用 URLSearchParams.toString()：后者会把 map 段的
     // 斜杠编码成 %2F，门户跳板的深链正则只认裸 /，分享出去的链接会失配
     let q = 'y=' + encodeURIComponent(cy);
@@ -2560,11 +2565,12 @@ function writeHash() {
       if (ef === '0') q += '&e=0'; // 关闭状态才写入，缺省=开启
       if (gf === '0') q += '&g=0'; // 河渠山川同规则
       if (ff) q += '&f=' + encodeURIComponent(ff);
+      if (mf === '1') q += '&m=1'; // 现代参考底图：默认关闭，开启时写入
     } else {
       // 地图模块未就绪（顶层 await 的降级加载可拖数秒）：hook 全空，
-      // 保留原 hash 里的 map/e/f/g，别把深链抹成只有 y
+      // 保留原 hash 里的 map/e/f/g/m，别把深链抹成只有 y
       const cur = location.hash.replace(/^#/, '');
-      ['map', 'e', 'f', 'g'].forEach(k => {
+      ['map', 'e', 'f', 'g', 'm'].forEach(k => {
         const m = cur.match(new RegExp('(?:^|&)' + k + '=([^&]*)'));
         if (m) q += '&' + k + '=' + m[1];
       });
@@ -3095,17 +3101,9 @@ let maplibregl;
 if (maplibregl) {
   const DEFAULT_VIEW = { center: [45, 33], zoom: 1.15 };
 
-  /* 底图自动降级：当前 CDN 加载失败时按顺序切换下一个可用来源 */
-  const BASEMAP_STYLES = [
-    'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
-    'https://tiles.openfreemap.org/styles/positron',
-    'https://tiles.openfreemap.org/styles/liberty',
-    'https://demotiles.maplibre.org/style.json',
-  ];
-  let basemapIdx = 0;
-  let overlayBound = false; // 地图事件处理器只绑定一次
+  function clampN(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
-  // 从 hash 恢复地图视图（map=zoom/lon/lat）
+  // 从 hash 恢复地图视图（map=zoom/lon/lat）及各图层开关
   let initial = null;
   try {
     const mh = new URLSearchParams(location.hash.replace(/^#/, '')).get('map');
@@ -3116,11 +3114,98 @@ if (maplibregl) {
       }
     }
   } catch (_) {}
-  function clampN(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+  const erasRequested = (() => {
+    try { return new URLSearchParams(location.hash.replace(/^#/, '')).get('e') !== '0'; } // 默认开启，e=0 关闭
+    catch (_) { return true; }
+  })();
+  const focusRequested = (() => {
+    try { return new URLSearchParams(location.hash.replace(/^#/, '')).get('f') === '1'; }
+    catch (_) { return false; }
+  })();
+  const geoRequested = (() => {
+    try { return new URLSearchParams(location.hash.replace(/^#/, '')).get('g') !== '0'; } // 河渠山川：缺省开，g=0 关
+    catch (_) { return true; }
+  })();
+  const modernRequested = (() => {
+    try { return new URLSearchParams(location.hash.replace(/^#/, '')).get('m') === '1'; } // 现代参考底图：缺省关，m=1 开
+    catch (_) { return false; }
+  })();
+
+  /* ============================================================
+   * 同源自托管自然底图（Natural Earth 1:50m 矢量 + 暗色地形晕渲 WebP）
+   * - 完全省略 glyphs 字段：MapLibre v6.19.0 对全部字符自动走本地 TinySDF，
+   *   零外部字形请求、零 404、同时命中 localIdeographFontFamily。
+   * - 注意：绝不把 {z}/{x}/{y} 放进 new URL()，避免花括号被百分号转义。
+   * ============================================================ */
+  const NE_VEC_URL = new URL(API_BASE + 'basemap/natural-earth.geojson', location.href).href;
+  const NE_RELIEF_TILES = new URL(API_BASE + 'basemap/relief/', location.href).href + '{z}/{x}/{y}.webp';
+  const CARTO_STYLE_URL = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
+  const MODERN_LAYERS = ['modern-ref-borders', 'modern-ref-countries', 'modern-ref-cities'];
+
+  // K_200 实测包含大洋盆地（>200m 深海），故背景层设为浅海大陆架色、ne-shelf 绘深海区
+  const NATURAL_EARTH_STYLE = {
+    version: 8,
+    sources: {
+      'ne-vec': { type: 'geojson', data: NE_VEC_URL },
+      'ne-relief': { type: 'raster', tiles: [NE_RELIEF_TILES], tileSize: 512, minzoom: 0, maxzoom: 4 },
+    },
+    layers: [
+      { id: 'ne-bg', type: 'background', paint: { 'background-color': '#0F1A2D' } },
+      { id: 'ne-shelf', type: 'fill', source: 'ne-vec', filter: ['==', ['get', 'k'], 'shelf'],
+        paint: { 'fill-color': '#070B13', 'fill-opacity': 1 } },
+      { id: 'ne-land', type: 'fill', source: 'ne-vec', filter: ['==', ['get', 'k'], 'land'],
+        paint: { 'fill-color': '#151D2C', 'fill-opacity': 1 } },
+      { id: 'ne-relief', type: 'raster', source: 'ne-relief',
+        paint: { 'raster-opacity': 0.88, 'raster-fade-duration': 180 } },
+      { id: 'ne-lakes', type: 'fill', source: 'ne-vec', filter: ['==', ['get', 'k'], 'lake'],
+        paint: { 'fill-color': '#0A1322', 'fill-opacity': 0.92 } },
+      { id: 'ne-rivers', type: 'line', source: 'ne-vec', filter: ['==', ['get', 'k'], 'river'],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': '#23415E',
+          'line-opacity': 0.62,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 1, 0.45, 5, 1.1, 8, 1.5],
+        } },
+      { id: 'ne-coast', type: 'line', source: 'ne-vec', filter: ['==', ['get', 'k'], 'land'],
+        paint: {
+          'line-color': '#2F425E',
+          'line-opacity': 0.85,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 1, 0.55, 5, 1.0, 9, 1.3],
+        } },
+      { id: 'ne-grat', type: 'line', source: 'ne-vec', filter: ['==', ['get', 'k'], 'grat'],
+        paint: { 'line-color': 'rgba(201, 162, 75, 0.09)', 'line-width': 0.55 } },
+    ],
+  };
+
+  const FALLBACK_STYLE = {
+    version: 8,
+    sources: {},
+    layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#080B13' } }],
+  };
+
+  // 所有共享状态集中前置声明，防止内联样式早触发 style.load 时出现 TDZ
+  const EMPTY_FC = { type: 'FeatureCollection', features: [] };
+  const OWN_SOURCES = new Set(['cities', 'eras', 'eras-labels', 'contribs', 'geo', 'ed-ref', 'ed-work', 'ed-verts']);
+  let mapReady = false;
+  let basemapMode = 'ne-relief'; // 'ne-relief' | 'ne-vector' | 'fallback'
+  let modernOn = modernRequested;
+  let gotNeVec = false, gotNeRelief = false, reliefFailCount = 0;
+  let modernTileLoaded = false, modernFailCount = 0, modernWarned = false;
+  let modernTileUrls = null, modernLoading = null;
+  let fallbackTimer = null;
+  let noticeTimer = 0;
+
+  let focusOn = focusRequested;
+  let erasOn = erasRequested, erasManifest = null, erasLoadedYear = null, erasLoading = null, hoverEraId = null;
+  let contribsFC = null, contribsShownYear = null, contribTipShown = false;
+  let geoOn = geoRequested, geoFC = null, geoShownYear = null, geoTipShown = false;
+  let citiesSig = '', citiesYear = null;
+  let tipPinned = false;
+  window.__mapErrors = [];
 
   const map = new maplibregl.Map({
     container: 'map',
-    style: BASEMAP_STYLES[0],
+    style: NATURAL_EARTH_STYLE,
     center: initial ? initial.center : DEFAULT_VIEW.center,
     zoom: initial ? initial.zoom : DEFAULT_VIEW.zoom,
     attributionControl: false,
@@ -3159,7 +3244,6 @@ if (maplibregl) {
   });
 
   // 事件不再以圆点渲染在地图上（改由右侧事件栏承载），分类筛选由事件栏消费
-  let focusOn = false;
   // 大政权固定配色：避免随机哈希让相邻政权撞色（宋金西夏这类邻居必须区分明显）
   const ERA_PALETTE = ['#8c6d3f', '#3f8c7a', '#7a3f8c', '#8c3f5f', '#5f8c3f', '#3f6d8c', '#8c563f', '#3f8c56', '#8a7bb8', '#8c3f8c', '#6d8c3f', '#c06b5e', '#5fa3b5', '#7aa66a', '#b0859b', '#5fa387', '#a3785f', '#6b7fa3', '#96854a', '#7a5fa3'];
   const ERA_COLORS = ['#8c6d3f', '#6d8c3f', '#3f8c7a', '#3f6d8c', '#7a3f8c', '#8c3f5f',
@@ -3246,72 +3330,57 @@ if (maplibregl) {
     return '';
   }
 
-  let mapReady = false;
-  window.__mapErrors = [];
-  // 从 hash 读取版图图层开关（e=1）
-  const erasRequested = (() => {
-    try { return new URLSearchParams(location.hash.replace(/^#/, '')).get('e') !== '0'; } // 默认开启，e=0 关闭
-    catch (_) { return true; }
-  })();
-  const focusRequested = (() => {
-    try { return new URLSearchParams(location.hash.replace(/^#/, '')).get('f') === '1'; }
-    catch (_) { return false; }
-  })();
-  // 历史河渠山川开关（hash g=0 关闭，缺省开）
-  const geoRequested = (() => {
-    try { return new URLSearchParams(location.hash.replace(/^#/, '')).get('g') !== '0'; }
-    catch (_) { return true; }
-  })();
-  /* 底图弱化：现代国界虚化压暗，隐藏国家名标注（保留城市/海洋名） */
-  function softenBasemap() {
-    try {
-      const style = map.getStyle();
-      const layers = (style && style.layers) || [];
-      if (layers.length <= 2) return; // 极简降级底图无需处理
-      window.__restyle = { hidden: [], softened: [] };
-      for (const layer of layers) {
-        if (/^(eras|events)-/.test(layer.id)) continue;
-        if (layer.type === 'symbol' && /country/i.test(layer.id)) {
-          map.setLayoutProperty(layer.id, 'visibility', 'none');
-          window.__restyle.hidden.push(layer.id);
-        } else if (layer.type === 'line' && /admin|boundary/i.test(layer.id)) {
-          try { map.setPaintProperty(layer.id, 'line-opacity', 0.12); } catch (_) {}
-          try { map.setPaintProperty(layer.id, 'line-width', 0.5); } catch (_) {}
-          try { map.setPaintProperty(layer.id, 'line-dasharray', [2, 3]); } catch (_) {}
-          window.__restyle.softened.push(layer.id);
-        }
-      }
-    } catch (e) { console.error('底图弱化失败', e); }
+  // 前置声明已在顶部完成；此处移除旧的 let mapReady / erasRequested / focusRequested / geoRequested 占位
+  function showTransientNotice(msg, ms = 3200) {
+    const el = document.getElementById('edToast');
+    if (!el || document.body.classList.contains('ed-on')) return;
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => el.classList.remove('show'), ms);
   }
 
-  map.on('load', setupLayers);
-  // setStyle 降级后 MapLibre 只触发 style.load（load 仅初始样式触发一次）
-  map.on('style.load', setupLayers);
-  function setupLayers() {
-    if (mapReady) return;
-    try {
-    // 事件不再以地图圆点渲染：由右侧「事件栏」列表承载（见经典脚本 updateEventPanel）
-
-    // 历史名城符号（★帝都 ◎都会 ●城市），随年代显示与升降级
-    // 符号用 Canvas 离屏绘制成位图（不依赖底图字形服务，跨网络稳定）
-    function makeSymImage(char, color, cssSize) {
-      const px = cssSize * 2; // @2x 渲染
-      const cv = document.createElement('canvas');
-      cv.width = px; cv.height = px;
-      const ctx = cv.getContext('2d');
-      ctx.font = Math.round(px * 0.82) + 'px "Segoe UI Symbol","Noto Sans Symbols 2","Microsoft YaHei",sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = color;
-      ctx.fillText(char, px / 2, px * 0.54);
-      const img = ctx.getImageData(0, 0, px, px);
-      return { width: px, height: px, data: new Uint8Array(img.data) };
+  function updateBasemapAttribution() {
+    const el = document.getElementById('basemapAttr');
+    if (!el) return;
+    const modernSuffix = modernOn
+      ? ' · 现代 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OSM</a> · © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>'
+      : '';
+    if (basemapMode === 'fallback') {
+      el.innerHTML = '离线深色画布' + modernSuffix;
+      return;
     }
-    map.addImage('sym-3', makeSymImage('★', '#e3b96a', 20), { pixelRatio: 2 });
-    map.addImage('sym-2', makeSymImage('◎', '#b9c2d4', 15), { pixelRatio: 2 });
-    map.addImage('sym-1', makeSymImage('●', '#8a93a8', 11), { pixelRatio: 2 });
+    el.innerHTML = '<a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a>' + modernSuffix;
+  }
+
+  function firstExistingLayer(ids) {
+    for (const id of ids) {
+      if (map.getLayer(id)) return id;
+    }
+    return undefined;
+  }
+
+  // 历史名城符号（★帝都 ◎都会 ●城市），随年代显示与升降级
+  // 符号用 Canvas 离屏绘制成位图（不依赖底图字形服务，跨网络稳定）
+  function makeSymImage(char, color, cssSize) {
+    const px = cssSize * 2; // @2x 渲染
+    const cv = document.createElement('canvas');
+    cv.width = px; cv.height = px;
+    const ctx = cv.getContext('2d');
+    ctx.font = Math.round(px * 0.82) + 'px "Segoe UI Symbol","Noto Sans Symbols 2","Microsoft YaHei",sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = color;
+    ctx.fillText(char, px / 2, px * 0.54);
+    const img = ctx.getImageData(0, 0, px, px);
+    return { width: px, height: px, data: new Uint8Array(img.data) };
+  }
+
+  function ensureCitiesLayer() {
+    if (map.getSource('cities')) return;
     map.addSource('cities', { type: 'geojson', data: EMPTY_FC });
-    citiesYear = null; // 底图降级重建源后允许重新填充
+    citiesYear = null;
+    citiesSig = '';
     map.addLayer({
       id: 'cities-sym', type: 'symbol', source: 'cities',
       layout: {
@@ -3323,75 +3392,335 @@ if (maplibregl) {
       paint: {
         'icon-opacity': 0.95,
       },
+    }, firstExistingLayer(['eras-labels-sym', 'geo-labels', 'ed-ref-fill']));
+  }
+
+  async function ensureModernRefLayers() {
+    if (map.getSource('modern-ref')) return;
+    try {
+      if (!modernTileUrls) {
+        if (!modernLoading) {
+          modernLoading = fetch(CARTO_STYLE_URL)
+            .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(st => {
+              const tiles = st && st.sources && st.sources.protomaps && st.sources.protomaps.tiles;
+              if (!Array.isArray(tiles) || !tiles.length) throw new Error('CARTO style 缺 protomaps.tiles');
+              modernTileUrls = tiles;
+              return tiles;
+            })
+            .finally(() => { modernLoading = null; });
+        }
+        await modernLoading;
+      }
+    } catch (e) {
+      if (modernOn && !modernWarned) {
+        modernWarned = true;
+        console.warn('现代参考底图（CARTO）加载失败:', e);
+        showTransientNotice('现代参考底图受网络限制暂不可用，自然底图不受影响');
+      }
+      return;
+    }
+    if (!mapReady || !modernOn || map.getSource('modern-ref')) return;
+    const beforeId = firstExistingLayer(['cities-sym', 'eras-labels-sym', 'geo-labels', 'ed-ref-fill']);
+    map.addSource('modern-ref', {
+      type: 'vector', tiles: modernTileUrls, minzoom: 0, maxzoom: 15,
+    });
+    map.addLayer({
+      id: 'modern-ref-borders', type: 'line', source: 'modern-ref', 'source-layer': 'boundaries',
+      filter: ['==', ['get', 'kind_detail'], 2],
+      paint: {
+        'line-color': '#8EA2C4',
+        'line-opacity': 0.48,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 1, 0.6, 5, 1.1],
+        'line-dasharray': [3, 2.5],
+      },
+    }, beforeId);
+    map.addLayer({
+      id: 'modern-ref-countries', type: 'symbol', source: 'modern-ref', 'source-layer': 'places',
+      minzoom: 1.5,
+      filter: ['all', ['==', ['get', 'kind'], 'country'], ['<=', ['coalesce', ['get', 'min_zoom'], 0], 4]],
+      layout: {
+        'text-field': ['coalesce', ['get', 'name:zh'], ['get', 'name:en'], ['get', 'name']],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 2, 9.5, 5, 12],
+        'text-letter-spacing': 0.12,
+      },
+      paint: {
+        'text-color': '#9FB1CE',
+        'text-halo-color': 'rgba(8,11,19,0.88)',
+        'text-halo-width': 1.2,
+        'text-opacity': 0.72,
+      },
+    }, beforeId);
+    map.addLayer({
+      id: 'modern-ref-cities', type: 'symbol', source: 'modern-ref', 'source-layer': 'places',
+      minzoom: 3.5,
+      filter: ['all', ['==', ['get', 'kind'], 'locality'], ['==', ['get', 'kind_detail'], 'city'], ['<=', ['coalesce', ['get', 'min_zoom'], 0], 6]],
+      layout: {
+        'text-field': ['coalesce', ['get', 'name:zh'], ['get', 'name:en'], ['get', 'name']],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 3.5, 9.5, 7, 11.5],
+      },
+      paint: {
+        'text-color': '#8EA2C2',
+        'text-halo-color': 'rgba(8,11,19,0.88)',
+        'text-halo-width': 1.1,
+        'text-opacity': 0.78,
+      },
+    }, beforeId);
+  }
+
+  async function setModernRef(on) {
+    modernOn = !!on;
+    const btn = document.getElementById('modernToggle');
+    if (btn) btn.classList.toggle('on', modernOn);
+    updateBasemapAttribution();
+    scheduleHash();
+    if (!mapReady) return;
+    if (modernOn) {
+      modernFailCount = 0;
+      modernWarned = false;
+      await ensureModernRefLayers();
+      if (!mapReady || !modernOn) return;
+    }
+    MODERN_LAYERS.forEach(id => {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', modernOn ? 'visible' : 'none');
+    });
+  }
+
+  function resetOverlayCaches() {
+    citiesYear = null;
+    citiesSig = '';
+    erasLoadedYear = null;
+    contribsShownYear = null;
+    geoShownYear = null;
+    hoverEraId = null;
+  }
+
+  function clearEraHover() {
+    if (hoverEraId != null && map.getSource('eras')) {
+      try { map.setFeatureState({ source: 'eras', id: hoverEraId }, { hover: false }); } catch (_) {}
+    }
+    hoverEraId = null;
+  }
+
+  function bindOverlayEventsOnce() {
+    const y2s = v => v == null ? '' : (v < 0 ? `前${-v}` : `${v}`);
+
+    // 1. 历史名城
+    map.on('mousemove', 'cities-sym', (e) => {
+      const f = e.features && e.features[0];
+      if (!f) return;
+      map.getCanvas().style.cursor = 'pointer';
+      if (tipPinned) return;
+      const p = f.properties || {};
+      const tl = p.tier === 3 ? '首都/帝都' : p.tier === 2 ? '区域中心' : '重要城市';
+      showMapTipContent('历史名城', p.name + (p.of ? ' — ' + p.of : '') + ' · ' + tl, '', e.point);
+    });
+    map.on('mouseleave', 'cities-sym', () => {
+      if (!tipPinned) hideMapTip();
+      map.getCanvas().style.cursor = '';
     });
 
-    if (!overlayBound) {
-      overlayBound = true;
-      // 注意：layer 按 id 查询的事件处理器持久生效，只绑定一次即可
-      map.on('mousemove', 'cities-sym', (e) => {
+    // 2. 政权版图（固定与悬停共用 #mapTip，钉住态不受悬停覆盖）
+    map.on('mousemove', 'eras-fill', (e) => {
+      const f = e.features && e.features[0];
+      if (!f || f.id == null) return;
+      map.getCanvas().style.cursor = 'pointer';
+      if (map.getSource('eras')) {
+        if (hoverEraId != null && hoverEraId !== f.id) {
+          try { map.setFeatureState({ source: 'eras', id: hoverEraId }, { hover: false }); } catch (_) {}
+        }
+        hoverEraId = f.id;
+        try { map.setFeatureState({ source: 'eras', id: hoverEraId }, { hover: true }); } catch (_) {}
+      }
+      if (tipPinned) return;
+      const p = f.properties || {};
+      const era = pickEraYear(currentYear());
+      const eraName = p._nz || zhPolityName(p.NAME) || p.NAME || '（未命名）';
+      showMapTipContent(
+        era ? `约 ${era.l} 政权疆域` : '政权疆域',
+        eraName,
+        [
+          p.start_year != null && p.end_year != null ? `存续 ${y2s(p.start_year)}–${y2s(p.end_year)} 年` : '',
+          p.capital ? `都城 ${p.capital}` : '',
+          p.wikipedia ? `Wikipedia: ${p.wikipedia}` : '',
+        ].filter(Boolean).join(' · '),
+        e.point,
+      );
+    });
+    map.on('mouseleave', 'eras-fill', () => {
+      clearEraHover();
+      map.getCanvas().style.cursor = '';
+      if (!tipPinned) hideMapTip();
+    });
+
+    // 3. 社区贡献叠加层
+    const contribTipFor = p => [
+      p.kind ? `类别 ${p.kind}` : '',
+      p.contributor ? `投稿 @${p.contributor}` : '',
+      p.start_year != null && p.end_year != null ? `存续 ${y2s(p.start_year)}–${y2s(p.end_year)} 年` : '',
+      p.source || '',
+    ].filter(Boolean).join(' · ');
+    ['contribs-fill', 'contribs-line', 'contribs-pt'].forEach(id => {
+      map.on('mousemove', id, (e) => {
         const f = e.features && e.features[0];
         if (!f) return;
-        const p = f.properties || {};
-        const tl = p.tier === 3 ? '首都/帝都' : p.tier === 2 ? '区域中心' : '重要城市';
-        showMapTipContent('历史名城', p.name + (p.of ? ' — ' + p.of : '') + ' · ' + tl, '');
         map.getCanvas().style.cursor = 'pointer';
+        if (tipPinned) return;
+        contribTipShown = true;
+        const p = f.properties || {};
+        showMapTipContent('社区贡献', p.name || '（未命名）', contribTipFor(p), e.point);
       });
-      map.on('mouseleave', 'cities-sym', () => { hideMapTip(); map.getCanvas().style.cursor = ''; });
-    }
+      map.on('mouseleave', id, () => {
+        contribTipShown = false;
+        if (!tipPinned) hideMapTip();
+        map.getCanvas().style.cursor = '';
+      });
+    });
 
-    mapReady = true;
-    mapError.classList.remove('show');
-    softenBasemap();
-    if (mapHooks.sync) mapHooks.sync(true);
-    if (erasRequested) setEras(true); // 从 hash 恢复版图图层
-    if (focusRequested) {
-      focusOn = true;
-      const ftb = document.getElementById('focusToggle');
-      if (ftb) ftb.classList.add('on');
-    }
+    // 4. 历史河渠
+    ['geo-river-core', 'geo-canal-core'].forEach(id => {
+      map.on('mousemove', id, (e) => {
+        const f = e.features && e.features[0];
+        if (!f) return;
+        map.getCanvas().style.cursor = 'pointer';
+        if (tipPinned) return;
+        geoTipShown = true;
+        const p = f.properties || {};
+        showMapTipContent(
+          p.kind === 'canal' ? '运河（人工水道）' : '河道',
+          p.name || '（未命名）',
+          [p.start_year != null && p.end_year != null ? `存续 ${y2s(p.start_year)}–${y2s(p.end_year)} 年` : '',
+            p.src || ''].filter(Boolean).join(' · '),
+          e.point,
+        );
+      });
+      map.on('mouseleave', id, () => {
+        geoTipShown = false;
+        if (!tipPinned) hideMapTip();
+        map.getCanvas().style.cursor = '';
+      });
+    });
+  }
+
+  function setupLayers() {
+    if (mapReady) return;
+    try {
+      resetOverlayCaches();
+      if (!map.hasImage('sym-3')) map.addImage('sym-3', makeSymImage('★', '#e3b96a', 20), { pixelRatio: 2 });
+      if (!map.hasImage('sym-2')) map.addImage('sym-2', makeSymImage('◎', '#b9c2d4', 15), { pixelRatio: 2 });
+      if (!map.hasImage('sym-1')) map.addImage('sym-1', makeSymImage('●', '#8a93a8', 11), { pixelRatio: 2 });
+
+      // 按固定 Z-order 重建所有典藏叠加层：
+      // 底图自然层 → eras-fill/outline → geo-* → contribs-* → modern-ref-* → cities-sym → eras-labels-sym → geo-labels → ed-*
+      ensureErasLayers();
+      if (geoFC) ensureGeoLayers();
+      if (contribsFC) ensureContribsLayers();
+      ensureCitiesLayer();
+      if (modernOn) {
+        ensureModernRefLayers();
+      }
+      if (basemapMode === 'ne-vector' && map.getLayer('ne-relief')) {
+        map.setLayoutProperty('ne-relief', 'visibility', 'none');
+      }
+
+      mapReady = true;
+      if (basemapMode !== 'fallback') mapError.classList.remove('show');
+      if (gotNeVec) clearTimeout(fallbackTimer);
+
+      updateBasemapAttribution();
+      if (mapHooks.sync) mapHooks.sync(true);
+      setEras(erasOn);
+      if (geoFC) updateGeography(true);
+      if (contribsFC) updateContribs(true);
+      updateCities();
+
+      window.dispatchEvent(new Event('mapdex-style-rebuilt'));
     } catch (err) {
       window.__mapErrors.push('load-handler: ' + (err && err.message || err));
     }
   }
 
-  map.on('error', (e) => {
-    const msg = String(e && e.error && e.error.message || e).slice(0, 300);
-    window.__mapErrors.push(msg);
-    console.error('地图错误', e && e.error);
-    // 底图 CDN 加载失败（Failed to fetch 等）→ 自动切换到下一个可用底图源
-    if (basemapIdx < BASEMAP_STYLES.length - 1 &&
-        (msg.toLowerCase().includes('fetch') || msg.toLowerCase().includes('network') ||
-         msg.toLowerCase().includes('load') || msg.toLowerCase().includes('failed'))) {
-      basemapIdx++;
-      console.warn('底图加载失败，切换到备用底图 ' + (basemapIdx + 1) + '/' + BASEMAP_STYLES.length);
-      mapReady = false;        // 允许 setupLayers 重建叠加图层
-      try { map.setStyle(BASEMAP_STYLES[basemapIdx]); } catch (_) {}
-      mapError.classList.remove('show');
-    }
-  });
-  // 看门狗：10 秒内既无 load 也无任何源数据事件 = 渲染管线卡死
-  // → 静默刷新一次（sessionStorage 防循环）；再失败则降级极简底图并提示
-  let gotSourceContent = false;
+  function switchToFallback(reason) {
+    if (basemapMode === 'fallback') return;
+    basemapMode = 'fallback';
+    clearTimeout(fallbackTimer);
+    console.warn('自托管底图不可用，切换离线画布:', reason);
+    mapReady = false;
+    updateBasemapAttribution();
+    try { map.setStyle(FALLBACK_STYLE, { diff: false }); } catch (_) {}
+    mapError.classList.add('show');
+  }
+
+  bindOverlayEventsOnce();
+  map.on('style.load', setupLayers);
+  if (map.isStyleLoaded()) setupLayers();
+
+  // 初始化工具栏按钮状态
+  if (focusOn) document.getElementById('focusToggle')?.classList.add('on');
+  document.getElementById('erasToggle')?.classList.toggle('on', erasOn);
+  document.getElementById('geoToggle')?.classList.toggle('on', geoOn);
+  document.getElementById('modernToggle')?.classList.toggle('on', modernOn);
+  updateBasemapAttribution();
+
   map.on('sourcedata', (e) => {
-    if (e.dataType === 'source' && e.sourceDataType === 'content') gotSourceContent = true;
-  });
-  const FALLBACK_STYLE = {
-    version: 8,
-    sources: {},
-    layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#0b1120' } }],
-  };
-  setTimeout(() => {
-    const wedged = !mapReady || !gotSourceContent;
-    if (!wedged) { sessionStorage.removeItem('mapdex-reload'); return; }
-    if (!sessionStorage.getItem('mapdex-reload')) {
-      console.warn('地图渲染管线无响应，自动刷新重试');
-      sessionStorage.setItem('mapdex-reload', '1');
-      location.reload();
-    } else {
-      try { map.setStyle(FALLBACK_STYLE); } catch (_) {}
-      mapError.classList.add('show');
+    if (e.dataType !== 'source') return;
+    if (e.sourceId === 'ne-vec' && (e.isSourceLoaded || e.sourceDataType === 'content')) {
+      gotNeVec = true;
+      if (mapReady) clearTimeout(fallbackTimer);
+    } else if (e.sourceId === 'ne-relief' && e.tile) {
+      gotNeRelief = true;
+    } else if (e.sourceId === 'modern-ref' && e.tile) {
+      modernTileLoaded = true;
     }
-  }, 10000);
+  });
+
+  map.on('error', (e) => {
+    const err = e && e.error;
+    const msg = String(err && err.message || e).slice(0, 300);
+    window.__mapErrors.push(msg);
+    console.error('地图错误', err);
+
+    if (e.sourceId && OWN_SOURCES.has(e.sourceId)) return;
+
+    if (e.sourceId === 'ne-relief') {
+      if (!gotNeRelief && ++reliefFailCount >= 4 && basemapMode === 'ne-relief') {
+        basemapMode = 'ne-vector';
+        if (map.getLayer('ne-relief')) map.setLayoutProperty('ne-relief', 'visibility', 'none');
+        console.warn('地形晕渲瓦片不可用，静默退回同源纯矢量底图');
+      }
+      return;
+    }
+    if (e.sourceId === 'ne-vec') {
+      switchToFallback('ne-vec error');
+      return;
+    }
+    if (e.sourceId === 'modern-ref') {
+      if (modernOn && !modernTileLoaded && ++modernFailCount >= 4 && !modernWarned) {
+        modernWarned = true;
+        console.warn('现代参考底图（CARTO）当前网络不可达');
+        showTransientNotice('现代参考底图受网络限制暂不可用，自然底图不受影响');
+      }
+    }
+  });
+
+  // 启动非破坏性兜底检查：12 秒内若自托管矢量底图仍未就绪，温和切入离线深色画布，绝不整页 reload
+  fallbackTimer = setTimeout(() => {
+    if (basemapMode !== 'fallback' && (!mapReady || !gotNeVec)) {
+      switchToFallback('startup-timeout');
+    }
+  }, 12000);
+
+  window.__basemapDebug = () => {
+    const style = map.getStyle();
+    return {
+      mode: basemapMode,
+      modernOn,
+      gotNeVec,
+      gotNeRelief,
+      layers: ((style && style.layers) || []).map(l => l.id),
+      attr: (document.getElementById('basemapAttr') || {}).textContent || '',
+    };
+  };
 
   /* ---------- 挂载双向联动钩子 ---------- */
   mapHooks.sync = () => {
@@ -3457,7 +3786,6 @@ if (maplibregl) {
   /* ---------- 点选政权信息卡（触屏没有 hover，点一下固定显示）----------
      借鉴 Chronas / patched-historical-atlas 的移动端做法：浏览态单击政权，
      信息卡钉在点击处；再点空白处 / Esc / 拖动地图收起。勘绘台开着时让路给描图。 */
-  let tipPinned = false;
   const unpinTip = () => { tipPinned = false; hideMapTip(); };
   map.on('click', (e) => {
     if (document.body.classList.contains('ed-on')) return;
@@ -3491,7 +3819,6 @@ if (maplibregl) {
    * 政权版图图层（Cliopatria / Seshat Global History Databank, CC BY 4.0）
    * 时代切片文件名即年份：按当前年份取不晚于它的最近切片
    * ============================================================ */
-  let erasOn = true, erasManifest = null, erasLoadedYear = null, erasLoading = null, hoverEraId = null;
   const eraCache = new Map();
   // 全部 39 个切片解析后也就 20MB 量级：缓存到 24 个即可覆盖一次完整播放，二次播放零请求
   const ERA_CACHE_MAX = 24;
@@ -3502,7 +3829,6 @@ if (maplibregl) {
       eraCache.delete(eraCache.keys().next().value);
     }
   }
-  const EMPTY_FC = { type: 'FeatureCollection', features: [] };
   function pickEraYear(year) {
     if (!erasManifest) return null;
     let best = null;
@@ -3611,15 +3937,31 @@ if (maplibregl) {
 
   function ensureErasLayers() {
     if (map.getSource('eras')) return;
-    const beforeId = (map.getStyle().layers.find(l => l.type === 'symbol') || {}).id;
+    const beforeFill = firstExistingLayer(['geo-river-bed', 'contribs-fill', 'modern-ref-borders', 'cities-sym', 'eras-labels-sym', 'geo-labels', 'ed-ref-fill']);
+    const beforeLabel = firstExistingLayer(['geo-labels', 'ed-ref-fill']);
     map.addSource('eras', { type: 'geojson', data: EMPTY_FC, generateId: true });
     map.addSource('eras-labels', { type: 'geojson', data: EMPTY_FC });
+    // 先插色块与轮廓，再把政权名插在名城之上（彻底解决文字被色块自压盖）
+    map.addLayer({
+      id: 'eras-fill', type: 'fill', source: 'eras',
+      paint: {
+        'fill-color': ERA_FILL_EXPR,
+        'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.55, 0.42],
+      },
+    }, beforeFill);
+    map.addLayer({
+      id: 'eras-outline', type: 'line', source: 'eras',
+      paint: {
+        'line-color': ERA_FILL_EXPR,
+        'line-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 1, 0.75],
+        'line-width': ['case', ['boolean', ['feature-state', 'hover'], false], 2, 1.1],
+      },
+    }, beforeFill);
     map.addLayer({
       id: 'eras-labels-sym', type: 'symbol', source: 'eras-labels',
       minzoom: 0.9,
       layout: {
         'text-field': ['get', 'name'],
-        'text-font': ['Noto Sans Regular'],
         'text-size': ['interpolate', ['linear'], ['zoom'], 1.2, 10, 5, 16],
         'text-letter-spacing': 0.08,
         'text-allow-overlap': true,
@@ -3633,48 +3975,7 @@ if (maplibregl) {
         'text-halo-width': 1.3,
         'text-opacity': 0.95,
       },
-    }, beforeId);
-    map.addLayer({
-      id: 'eras-fill', type: 'fill', source: 'eras',
-      paint: {
-        'fill-color': ERA_FILL_EXPR,
-        'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.55, 0.42],
-      },
-    }, beforeId);
-    map.addLayer({
-      id: 'eras-outline', type: 'line', source: 'eras',
-      paint: {
-        'line-color': ERA_FILL_EXPR,
-        'line-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 1, 0.75],
-        'line-width': ['case', ['boolean', ['feature-state', 'hover'], false], 2, 1.1],
-      },
-    }, beforeId);
-
-    // 悬停高亮 + 政权名提示（按 id 查询的处理器持久生效，只绑定一次）
-    if (!overlayBound) {
-    map.on('mousemove', 'eras-fill', (e) => {
-      const f = e.features && e.features[0];
-      if (!f || f.id == null) return;
-      map.getCanvas().style.cursor = 'pointer';
-      const p = f.properties || {};
-      const era = pickEraYear(currentYear());
-      const eraName = p._nz || zhPolityName(p.NAME) || p.NAME || '（未命名）';
-      const y2s = v => v == null ? '' : (v < 0 ? `前${-v}` : `${v}`);
-      showMapTipContent(
-        era ? `约 ${era.l} 政权疆域` : '政权疆域',
-        eraName,
-        [
-          p.start_year != null && p.end_year != null ? `存续 ${y2s(p.start_year)}–${y2s(p.end_year)} 年` : '',
-          p.capital ? `都城 ${p.capital}` : '',
-          p.wikipedia ? `Wikipedia: ${p.wikipedia}` : '',
-        ].filter(Boolean).join(' · '),
-      );
-    });
-    map.on('mouseleave', 'eras-fill', () => {
-      if (!tipPinned) hideMapTip(); // 钉住的信息卡不因鼠标离开政权而消失
-    });
-    }
-
+    }, beforeLabel);
   }
 
   async function setEras(on) {
@@ -3682,6 +3983,7 @@ if (maplibregl) {
     const btn = document.getElementById('erasToggle');
     btn.classList.toggle('on', on);
     if (!on) {
+      clearEraHover();
       if (map.getSource('eras')) {
         map.getSource('eras').setData(EMPTY_FC);
       }
@@ -3718,40 +4020,36 @@ if (maplibregl) {
   document.getElementById('erasToggle').addEventListener('click', () => setEras(!erasOn));
 
   /* ============================================================
-   * 社区贡献叠加层（contributions/ → /api/contributions 合并）
+   * 社区贡献叠加层（contributions/ → /api/contributions.json 合并）
    * 石绿 #6F9E6A = 通过校验/已入库（与勘绘台配色语义一致）。
    * 静态镜像或本地后端没有这份数据时静默跳过，不影响主图。
    * ============================================================ */
-  let contribsFC = null;       // 全量合并结果
-  let contribsShownYear = null;
-  let contribTipShown = false; // 悬停的是贡献卡：切年后要素可能消失，得收掉幽灵卡
   async function loadContribs() {
     try {
-      const r = await fetch(API_BASE + 'contributions');
+      const r = await fetch(API_BASE + 'contributions.json');
       if (!r.ok) return; // 404 = 没有贡献数据，正常降级
       const fc = await r.json();
       if (!fc || !Array.isArray(fc.features) || !fc.features.length) return;
       contribsFC = fc;
-      // 本地 fetch 快过样式加载：addSource 在 style 未就绪时会抛
-      // "Style is not done loading"——与 setEras 一样挂到 load 时机
-      const setup = () => { ensureContribsLayers(); updateContribs(true); };
-      if (mapReady) setup();
-      else map.once('load', setup);
+      // 若样式已就绪立即挂层填数；未就绪则等 setupLayers() 在 style.load 时一并消费 contribsFC
+      if (mapReady) {
+        ensureContribsLayers();
+        updateContribs(true);
+      }
     } catch (e) {
       window.__mapErrors.push('contribs: ' + (e && e.message || e)); // 不再无声吞错
     }
   }
   function ensureContribsLayers() {
     if (map.getSource('contribs')) return;
+    const beforeId = firstExistingLayer(['modern-ref-borders', 'cities-sym', 'eras-labels-sym', 'geo-labels', 'ed-ref-fill']);
     map.addSource('contribs', { type: 'geojson', data: EMPTY_FC });
-    // 直接叠到最顶（不插到 symbol 前）：era 填充 0.42 不透明度会盖灰
-    // 低层注记——贡献是"标注"语义，必须在版图填充之上、勘绘台层之下
-    // （勘绘台层后开后加，自然居顶）。
+    // 贡献是"标注"语义，落在版图色块与河渠之上、名城与政权注记之下、勘绘台之下
     map.addLayer({
       id: 'contribs-fill', type: 'fill', source: 'contribs',
       filter: ['==', ['geometry-type'], 'Polygon'],
       paint: { 'fill-color': '#6F9E6A', 'fill-opacity': 0.10 },
-    });
+    }, beforeId);
     // 深色描边垫底：石绿在暗紫版图上才跳得出来
     map.addLayer({
       id: 'contribs-case', type: 'line', source: 'contribs',
@@ -3759,43 +4057,20 @@ if (maplibregl) {
         'line-color': '#0B0F18', 'line-opacity': 0.55,
         'line-width': ['case', ['==', ['geometry-type'], 'Polygon'], 2.8, 3.8],
       },
-    });
+    }, beforeId);
     map.addLayer({
       id: 'contribs-line', type: 'line', source: 'contribs',
       paint: {
         'line-color': '#6F9E6A', 'line-opacity': 0.9,
         'line-width': ['case', ['==', ['geometry-type'], 'Polygon'], 1.5, 2.2],
       },
-    });
+    }, beforeId);
     map.addLayer({
       id: 'contribs-pt', type: 'circle', source: 'contribs',
       filter: ['==', ['geometry-type'], 'Point'],
       paint: { 'circle-radius': 5, 'circle-color': '#6F9E6A',
         'circle-stroke-color': '#0B0F18', 'circle-stroke-width': 1.5 },
-    });
-    // 悬停卡：与政权悬停共用 mapTip，但只展示贡献自身信息
-    const y2s = v => v == null ? '' : (v < 0 ? `前${-v}` : `${v}`);
-    const tipFor = p => [
-      p.kind ? `类别 ${p.kind}` : '',
-      p.contributor ? `投稿 @${p.contributor}` : '',
-      p.start_year != null && p.end_year != null ? `存续 ${y2s(p.start_year)}–${y2s(p.end_year)} 年` : '',
-      p.source || '',
-    ].filter(Boolean).join(' · ');
-    ['contribs-fill', 'contribs-line', 'contribs-pt'].forEach(id => {
-      map.on('mousemove', id, (e) => {
-        const f = e.features && e.features[0];
-        if (!f) return;
-        contribTipShown = true;
-        map.getCanvas().style.cursor = 'pointer';
-        const p = f.properties || {};
-        showMapTipContent('社区贡献', p.name || '（未命名）', tipFor(p), e.point);
-      });
-      map.on('mouseleave', id, () => {
-        contribTipShown = false;
-        if (!tipPinned) hideMapTip();
-        map.getCanvas().style.cursor = '';
-      });
-    });
+    }, beforeId);
   }
   function updateContribs(force) {
     if (!contribsFC || !mapReady || !map.getSource('contribs')) return;
@@ -3840,7 +4115,6 @@ if (maplibregl) {
    * 走向示意（地形不随时间变化）。开关在时间轴右上，hash g=0 关。
    * 走线为示意简化，依据标注在各要素 src（谭其骧《中国历史地图集》）
    * ============================================================ */
-  let geoOn = geoRequested, geoFC = null, geoShownYear = null, geoTipShown = false;
   async function loadGeography() {
     try {
       const r = await fetch(API_BASE + 'geography.json');
@@ -3849,18 +4123,18 @@ if (maplibregl) {
       if (!fc || !Array.isArray(fc.features) || !fc.features.length) return;
       geoFC = fc;
       document.getElementById('geoToggle').style.display = '';
-      const setup = () => {
+      if (mapReady) {
         ensureGeoLayers();
         updateGeography(true);
-      };
-      if (mapReady) setup();
-      else map.once('load', setup); // 同 loadContribs：addSource 须等样式就绪
+      }
     } catch (e) {
       window.__mapErrors.push('geo: ' + (e && e.message || e));
     }
   }
   function ensureGeoLayers() {
     if (map.getSource('geo')) return;
+    const beforeGeo = firstExistingLayer(['contribs-fill', 'modern-ref-borders', 'cities-sym', 'eras-labels-sym', 'geo-labels', 'ed-ref-fill']);
+    const beforeGeoLabel = firstExistingLayer(['ed-ref-fill']);
     map.addSource('geo', { type: 'geojson', data: EMPTY_FC });
     // 水系三层画法：河床软带（定宽度）→ 主水线 → 高光芯（流动感），
     // 宽度随缩放展宽（zoom interpolate）——远景清爽、近景有水的体量。
@@ -3874,45 +4148,44 @@ if (maplibregl) {
       filter: ['==', ['get', 'kind'], 'river'],
       layout: WATER_CAP,
       paint: { 'line-color': '#2C5878', 'line-opacity': 0.45, 'line-blur': 0.7, 'line-width': ZW(0, 2.6, 5.0) },
-    });
+    }, beforeGeo);
     map.addLayer({
       id: 'geo-river-core', type: 'line', source: 'geo',
       filter: ['==', ['get', 'kind'], 'river'],
       layout: WATER_CAP,
       paint: { 'line-color': '#6FA8CE', 'line-opacity': 0.95, 'line-width': ZW(0, 1.0, 2.2) },
-    });
+    }, beforeGeo);
     map.addLayer({
       id: 'geo-river-sheen', type: 'line', source: 'geo',
       filter: ['==', ['get', 'kind'], 'river'],
       layout: WATER_CAP,
       paint: { 'line-color': '#CFE6F5', 'line-opacity': 0.4, 'line-width': ZW(0, 0.32, 0.6) },
-    });
+    }, beforeGeo);
     map.addLayer({
       id: 'geo-canal-bed', type: 'line', source: 'geo',
       filter: ['==', ['get', 'kind'], 'canal'],
       layout: WATER_CAP,
       paint: { 'line-color': '#2C5878', 'line-opacity': 0.35, 'line-blur': 0.6, 'line-width': ZW(0, 2.0, 3.6) },
-    });
+    }, beforeGeo);
     map.addLayer({
       id: 'geo-canal-core', type: 'line', source: 'geo',
       filter: ['==', ['get', 'kind'], 'canal'],
       layout: WATER_CAP,
       paint: { 'line-color': '#7FB0D6', 'line-opacity': 0.95,
         'line-width': ZW(0, 1.0, 1.9), 'line-dasharray': [4, 2.5] },
-    });
+    }, beforeGeo);
     map.addLayer({
       id: 'geo-range', type: 'line', source: 'geo',
       filter: ['==', ['get', 'kind'], 'range'],
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: { 'line-color': '#7A7263', 'line-opacity': 0.5, 'line-width': 4 },
-    });
+    }, beforeGeo);
     map.addLayer({
       id: 'geo-labels', type: 'symbol', source: 'geo',
       minzoom: 1.2,
       layout: {
         'symbol-placement': 'line',
         'text-field': ['get', 'name'],
-        'text-font': ['Noto Sans Regular'],
         'text-size': 10.5,
         'text-letter-spacing': 0.12,
         'text-max-angle': 60,
@@ -3922,36 +4195,7 @@ if (maplibregl) {
           ['==', ['get', 'kind'], 'canal'], '#A9C4DC', '#A39B8B'],
         'text-halo-color': 'rgba(0,0,0,.8)', 'text-halo-width': 1.2, 'text-opacity': 0.92,
       },
-    });
-    const y2s = v => v == null ? '' : (v < 0 ? `前${-v}` : `${v}`);
-    ['geo-river-core', 'geo-canal-core'].forEach(id => {
-      map.on('mousemove', id, (e) => {
-        const f = e.features && e.features[0];
-        if (!f) return;
-        geoTipShown = true;
-        map.getCanvas().style.cursor = 'pointer';
-        const p = f.properties || {};
-        showMapTipContent(p.kind === 'canal' ? '运河（人工水道）' : '河道',
-          p.name || '（未命名）',
-          [p.start_year != null && p.end_year != null ? `存续 ${y2s(p.start_year)}–${y2s(p.end_year)} 年` : '',
-            p.src || ''].filter(Boolean).join(' · '), e.point);
-      });
-      map.on('mouseleave', id, () => {
-        geoTipShown = false;
-        if (!tipPinned) hideMapTip();
-        map.getCanvas().style.cursor = '';
-      });
-    });
-    document.getElementById('geoToggle').addEventListener('click', () => {
-      geoOn = !geoOn;
-      document.getElementById('geoToggle').classList.toggle('on', geoOn);
-      ['geo-river-bed', 'geo-river-core', 'geo-river-sheen', 'geo-canal-bed', 'geo-canal-core', 'geo-range', 'geo-labels'].forEach(id => {
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', geoOn ? 'visible' : 'none');
-      });
-      hideMapTip();
-      scheduleHash();
-    });
-    document.getElementById('geoToggle').classList.toggle('on', geoOn);
+    }, beforeGeoLabel);
     if (!geoOn) ['geo-river-bed', 'geo-river-core', 'geo-river-sheen', 'geo-canal-bed', 'geo-canal-core', 'geo-range', 'geo-labels'].forEach(id => {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
     });
@@ -3980,6 +4224,17 @@ if (maplibregl) {
     };
   };
   loadGeography();
+  document.getElementById('geoToggle').addEventListener('click', () => {
+    geoOn = !geoOn;
+    document.getElementById('geoToggle').classList.toggle('on', geoOn);
+    ['geo-river-bed', 'geo-river-core', 'geo-river-sheen', 'geo-canal-bed', 'geo-canal-core', 'geo-range', 'geo-labels'].forEach(id => {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', geoOn ? 'visible' : 'none');
+    });
+    if (geoOn) updateGeography(true);
+    hideMapTip();
+    scheduleHash();
+  });
+  document.getElementById('modernToggle').addEventListener('click', () => setModernRef(!modernOn));
   document.getElementById('focusToggle').addEventListener('click', () => {
     focusOn = !focusOn;
     document.getElementById('focusToggle').classList.toggle('on', focusOn);
@@ -3991,10 +4246,9 @@ if (maplibregl) {
   mapHooks.erasFlag = () => (erasOn ? null : '0');
   mapHooks.focusFlag = () => (focusOn ? '1' : null);
   mapHooks.geoFlag = () => (geoOn ? null : '0');
+  mapHooks.modernFlag = () => (modernOn ? '1' : null);
 
   /* ---------- 历史名城按年代筛选 ---------- */
-  let citiesSig = '';
-  let citiesYear = null; // sync 每帧都会调用本函数：年份没变就直接跳过
   function updateCities() {
     if (!mapReady || !map.getSource('cities')) return;
     const cy = currentYear();
@@ -4059,6 +4313,9 @@ const TRACE_TUNES = [
   ['eras-outline', 'line-color', '#3B4458'],
   ['eras-labels-sym', 'text-opacity', 0.16],
   ['cities-sym', 'icon-opacity', 0.22],
+  ['modern-ref-borders', 'line-opacity', 0.2],
+  ['modern-ref-countries', 'text-opacity', 0.2],
+  ['modern-ref-cities', 'text-opacity', 0.2],
 ];
 
 const toastEl = $('edToast'), bodyEl = $('edBody'), eraEl = $('edEra'), sumEl = $('edSum'),
@@ -4261,10 +4518,10 @@ function traceStyle(on) {
       }
     } catch (e) {}
   });
-  // 底图的现代地名也要退到纸后：描图时眼睛要跟朱砂线，不是跟 Hohhot 这种标注
+  // 非应用自建/自然底图的可选外部叠加注记退到纸后
   const layers = (map.getStyle() || {}).layers || [];
   layers.forEach(l => {
-    if (l.type !== 'symbol' || /^(eras|cities|ed-)/.test(l.id)) return;
+    if (l.type !== 'symbol' || /^(eras|cities|ed-|ne-)/.test(l.id)) return;
     ['text-opacity', 'icon-opacity'].forEach(key => {
       const k = 'b:' + l.id + '|' + key;
       try {
@@ -4977,10 +5234,14 @@ function bindMap() {
     if (edOpen) chrome();
   };
 
-  const rebuild = () => { buildLayers(); if (edOpen) traceStyle(true); paintData(); };
-  if (map.loaded()) rebuild();
-  map.on('load', rebuild);
-  map.on('style.load', rebuild);
+  const rebuild = () => {
+    paintBackup = {};
+    buildLayers();
+    if (edOpen) traceStyle(true);
+    paintData();
+  };
+  if (map.getSource('cities')) rebuild();
+  window.addEventListener('mapdex-style-rebuilt', rebuild);
 }
 
 restore();

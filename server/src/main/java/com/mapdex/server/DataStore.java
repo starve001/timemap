@@ -144,6 +144,26 @@ public class DataStore {
         return read(p, "geography.json");
     }
 
+    /** 自托管 Natural Earth 自然矢量底图（缺失时返回 null，由控制器返回 404） */
+    public Cached basemapVector() {
+        Path p = dataDir.resolve("basemap").resolve("natural-earth.geojson");
+        if (!Files.isRegularFile(p)) return null;
+        return read(p, "basemap/natural-earth.geojson");
+    }
+
+    /** 自托管 Natural Earth 暗色地形晕渲 WebP 瓦片（越界或缺失返回 null） */
+    public Cached basemapReliefTile(int z, int x, int y) {
+        if (z < 0 || z > 6) return null;
+        int limit = 1 << z;
+        if (x < 0 || x >= limit || y < 0 || y >= limit) return null;
+        Path p = dataDir.resolve("basemap").resolve("relief")
+                .resolve(String.valueOf(z))
+                .resolve(String.valueOf(x))
+                .resolve(y + ".webp");
+        if (!Files.isRegularFile(p)) return null;
+        return read(p, "basemap/relief/" + z + "/" + x + "/" + y + ".webp");
+    }
+
     /** 按年份解析时代切片：取不晚于该年份的最近切片 */
     public EraEntry resolveEra(int year) {
         Manifest m = manifest();

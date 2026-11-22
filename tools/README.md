@@ -11,6 +11,7 @@
 | `analyze-cliopatria-coverage.js` | 检查政权存续期与切片年份的覆盖缺口 |
 | `scan-cliopatria.js` / `inspect-cliopatria.js` / `dump-east.js` | 数据源探查与东亚政权检查 |
 | `apply-cliopatria-1200.js` / `apply-cliopatria-950-376.js` | 特定时期切片的数据修正 |
+| `build-basemap.py` | Python 脚本：生成同源自托管 Natural Earth 自然矢量底图与暗色地形晕渲 WebP 瓦片（输出至 `data/basemap/`） |
 | `check-syntax.js` | 前端脚本语法检查 |
 
 ## 原始数据
