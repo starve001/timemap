@@ -3862,23 +3862,48 @@ if (maplibregl) {
   function ensureGeoLayers() {
     if (map.getSource('geo')) return;
     map.addSource('geo', { type: 'geojson', data: EMPTY_FC });
-    // 注记语义，叠在版图填充之上（勘绘台层后开后加，自然仍居顶）
+    // 水系三层画法：河床软带（定宽度）→ 主水线 → 高光芯（流动感），
+    // 宽度随缩放展宽（zoom interpolate）——远景清爽、近景有水的体量。
+    // 运河主水线用虚线保留「人工水道」语义。注记层叠在版图之上。
+    const WATER_CAP = { 'line-cap': 'round', 'line-join': 'round' };
+    const ZW = (k, a, b) => ['interpolate', ['linear'], ['zoom'],
+      3, ['*', a, ['coalesce', ['get', 'w'], 1.6]],
+      7, ['*', b, ['coalesce', ['get', 'w'], 1.6]]];
     map.addLayer({
-      id: 'geo-river', type: 'line', source: 'geo',
+      id: 'geo-river-bed', type: 'line', source: 'geo',
       filter: ['==', ['get', 'kind'], 'river'],
-      paint: { 'line-color': '#5E8FB5', 'line-opacity': 0.85,
-        'line-width': ['coalesce', ['get', 'w'], 1.6] },
+      layout: WATER_CAP,
+      paint: { 'line-color': '#2C5878', 'line-opacity': 0.45, 'line-blur': 0.7, 'line-width': ZW(0, 2.6, 5.0) },
     });
     map.addLayer({
-      id: 'geo-canal', type: 'line', source: 'geo',
+      id: 'geo-river-core', type: 'line', source: 'geo',
+      filter: ['==', ['get', 'kind'], 'river'],
+      layout: WATER_CAP,
+      paint: { 'line-color': '#6FA8CE', 'line-opacity': 0.95, 'line-width': ZW(0, 1.0, 2.2) },
+    });
+    map.addLayer({
+      id: 'geo-river-sheen', type: 'line', source: 'geo',
+      filter: ['==', ['get', 'kind'], 'river'],
+      layout: WATER_CAP,
+      paint: { 'line-color': '#CFE6F5', 'line-opacity': 0.4, 'line-width': ZW(0, 0.32, 0.6) },
+    });
+    map.addLayer({
+      id: 'geo-canal-bed', type: 'line', source: 'geo',
       filter: ['==', ['get', 'kind'], 'canal'],
-      paint: { 'line-color': '#8FB0CE', 'line-opacity': 0.9,
-        'line-width': ['coalesce', ['get', 'w'], 1.6], 'line-dasharray': [4, 2.5] },
+      layout: WATER_CAP,
+      paint: { 'line-color': '#2C5878', 'line-opacity': 0.35, 'line-blur': 0.6, 'line-width': ZW(0, 2.0, 3.6) },
+    });
+    map.addLayer({
+      id: 'geo-canal-core', type: 'line', source: 'geo',
+      filter: ['==', ['get', 'kind'], 'canal'],
+      layout: WATER_CAP,
+      paint: { 'line-color': '#7FB0D6', 'line-opacity': 0.95,
+        'line-width': ZW(0, 1.0, 1.9), 'line-dasharray': [4, 2.5] },
     });
     map.addLayer({
       id: 'geo-range', type: 'line', source: 'geo',
       filter: ['==', ['get', 'kind'], 'range'],
-      layout: { 'line-cap': 'round' },
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: { 'line-color': '#7A7263', 'line-opacity': 0.5, 'line-width': 4 },
     });
     map.addLayer({
@@ -3899,7 +3924,7 @@ if (maplibregl) {
       },
     });
     const y2s = v => v == null ? '' : (v < 0 ? `前${-v}` : `${v}`);
-    ['geo-river', 'geo-canal'].forEach(id => {
+    ['geo-river-core', 'geo-canal-core'].forEach(id => {
       map.on('mousemove', id, (e) => {
         const f = e.features && e.features[0];
         if (!f) return;
@@ -3920,14 +3945,14 @@ if (maplibregl) {
     document.getElementById('geoToggle').addEventListener('click', () => {
       geoOn = !geoOn;
       document.getElementById('geoToggle').classList.toggle('on', geoOn);
-      ['geo-river', 'geo-canal', 'geo-range', 'geo-labels'].forEach(id => {
+      ['geo-river-bed', 'geo-river-core', 'geo-river-sheen', 'geo-canal-bed', 'geo-canal-core', 'geo-range', 'geo-labels'].forEach(id => {
         if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', geoOn ? 'visible' : 'none');
       });
       hideMapTip();
       scheduleHash();
     });
     document.getElementById('geoToggle').classList.toggle('on', geoOn);
-    if (!geoOn) ['geo-river', 'geo-canal', 'geo-range', 'geo-labels'].forEach(id => {
+    if (!geoOn) ['geo-river-bed', 'geo-river-core', 'geo-river-sheen', 'geo-canal-bed', 'geo-canal-core', 'geo-range', 'geo-labels'].forEach(id => {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
     });
   }
