@@ -17,6 +17,10 @@ MAPDEX 的版图切片来自 [Cliopatria](https://github.com/Seshat-Global-Histo
 
 草稿存在你自己浏览器里，关掉页面不会丢。
 
+## 描完会怎样
+
+合并进主仓的贡献会在**下一次构建时并入舆图的石绿叠加层**：把时间轴拖到该要素的存续区间内它就出现，悬停能看到名称、类别、投稿人和依据。你描的墙，所有人都能在图上看到。
+
 ## 两条交回路线
 
 **一键递呈（推荐）**：卡里点「递呈 GitHub」，按提示粘一把只管你自己 fork 的 fine-grained token（Contents: Read and write）。之后建 fork、开分支、写文件都替你做完，最后在 GitHub 预填好的 PR 页面点一下 **Create pull request**。

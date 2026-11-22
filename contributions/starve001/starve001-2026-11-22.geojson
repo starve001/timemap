@@ -1,0 +1,31 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [113.55, 40.45],
+          [113.95, 40.52],
+          [114.32, 40.62],
+          [114.75, 40.72],
+          [115.10, 40.68],
+          [115.42, 40.58],
+          [115.80, 40.49],
+          [116.15, 40.40]
+        ]
+      },
+      "properties": {
+        "name": "明长城·宣府镇段（示例）",
+        "kind": "wall",
+        "start_year": 1400,
+        "end_year": 1644,
+        "source": "《中国历史地图集》第七册 明宣府镇防区示意；走线据景泰至嘉靖间边墙大略位置综合，示例数据用于演示贡献闭环",
+        "contributor": "starve001",
+        "license": "CC0 1.0",
+        "traced_on": "2026-11-22"
+      }
+    }
+  ]
+}

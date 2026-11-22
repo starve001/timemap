@@ -3372,7 +3372,7 @@ if (maplibregl) {
   /* ---------- 挂载双向联动钩子 ---------- */
   mapHooks.sync = () => {
     if (!mapReady) return;
-    updateEra(); updateCities();
+    updateEra(); updateCities(); updateContribs();
   };
 
   mapHooks.sliceInfo = () => {
@@ -3692,6 +3692,122 @@ if (maplibregl) {
   }
 
   document.getElementById('erasToggle').addEventListener('click', () => setEras(!erasOn));
+
+  /* ============================================================
+   * 社区贡献叠加层（contributions/ → /api/contributions 合并）
+   * 石绿 #6F9E6A = 通过校验/已入库（与勘绘台配色语义一致）。
+   * 静态镜像或本地后端没有这份数据时静默跳过，不影响主图。
+   * ============================================================ */
+  let contribsFC = null;       // 全量合并结果
+  let contribsShownYear = null;
+  let contribTipShown = false; // 悬停的是贡献卡：切年后要素可能消失，得收掉幽灵卡
+  async function loadContribs() {
+    try {
+      const r = await fetch(API_BASE + 'contributions');
+      if (!r.ok) return; // 404 = 没有贡献数据，正常降级
+      const fc = await r.json();
+      if (!fc || !Array.isArray(fc.features) || !fc.features.length) return;
+      contribsFC = fc;
+      // 本地 fetch 快过样式加载：addSource 在 style 未就绪时会抛
+      // "Style is not done loading"——与 setEras 一样挂到 load 时机
+      const setup = () => { ensureContribsLayers(); updateContribs(true); };
+      if (mapReady) setup();
+      else map.once('load', setup);
+    } catch (e) {
+      window.__mapErrors.push('contribs: ' + (e && e.message || e)); // 不再无声吞错
+    }
+  }
+  function ensureContribsLayers() {
+    if (map.getSource('contribs')) return;
+    map.addSource('contribs', { type: 'geojson', data: EMPTY_FC });
+    // 直接叠到最顶（不插到 symbol 前）：era 填充 0.42 不透明度会盖灰
+    // 低层注记——贡献是"标注"语义，必须在版图填充之上、勘绘台层之下
+    // （勘绘台层后开后加，自然居顶）。
+    map.addLayer({
+      id: 'contribs-fill', type: 'fill', source: 'contribs',
+      filter: ['==', ['geometry-type'], 'Polygon'],
+      paint: { 'fill-color': '#6F9E6A', 'fill-opacity': 0.10 },
+    });
+    // 深色描边垫底：石绿在暗紫版图上才跳得出来
+    map.addLayer({
+      id: 'contribs-case', type: 'line', source: 'contribs',
+      paint: {
+        'line-color': '#0B0F18', 'line-opacity': 0.55,
+        'line-width': ['case', ['==', ['geometry-type'], 'Polygon'], 2.8, 3.8],
+      },
+    });
+    map.addLayer({
+      id: 'contribs-line', type: 'line', source: 'contribs',
+      paint: {
+        'line-color': '#6F9E6A', 'line-opacity': 0.9,
+        'line-width': ['case', ['==', ['geometry-type'], 'Polygon'], 1.5, 2.2],
+      },
+    });
+    map.addLayer({
+      id: 'contribs-pt', type: 'circle', source: 'contribs',
+      filter: ['==', ['geometry-type'], 'Point'],
+      paint: { 'circle-radius': 5, 'circle-color': '#6F9E6A',
+        'circle-stroke-color': '#0B0F18', 'circle-stroke-width': 1.5 },
+    });
+    // 悬停卡：与政权悬停共用 mapTip，但只展示贡献自身信息
+    const y2s = v => v == null ? '' : (v < 0 ? `前${-v}` : `${v}`);
+    const tipFor = p => [
+      p.kind ? `类别 ${p.kind}` : '',
+      p.contributor ? `投稿 @${p.contributor}` : '',
+      p.start_year != null && p.end_year != null ? `存续 ${y2s(p.start_year)}–${y2s(p.end_year)} 年` : '',
+      p.source || '',
+    ].filter(Boolean).join(' · ');
+    ['contribs-fill', 'contribs-line', 'contribs-pt'].forEach(id => {
+      map.on('mousemove', id, (e) => {
+        const f = e.features && e.features[0];
+        if (!f) return;
+        contribTipShown = true;
+        map.getCanvas().style.cursor = 'pointer';
+        const p = f.properties || {};
+        showMapTipContent('社区贡献', p.name || '（未命名）', tipFor(p), e.point);
+      });
+      map.on('mouseleave', id, () => {
+        contribTipShown = false;
+        if (!tipPinned) hideMapTip();
+        map.getCanvas().style.cursor = '';
+      });
+    });
+  }
+  function updateContribs(force) {
+    if (!contribsFC || !mapReady || !map.getSource('contribs')) return;
+    const y = Math.round(currentYear());
+    if (!force && y === contribsShownYear) return;
+    contribsShownYear = y;
+    // 上下线年份过滤：存续区间含当年才上屏（缺年份的要素常显）
+    const feats = contribsFC.features.filter(f => {
+      const p = f.properties || {};
+      if (typeof p.start_year !== 'number' || typeof p.end_year !== 'number') return true;
+      return p.start_year <= y && y <= p.end_year;
+    });
+    map.getSource('contribs').setData({ type: 'FeatureCollection', features: feats });
+    if (contribTipShown) { hideMapTip(); contribTipShown = false; } // 悬停的要素可能被年份滤掉了
+  }
+  // 诊断钩子（与 __mapErrors 同款模式）：冒烟与排障用（异步：含 getData）
+  window.__contribsDebug = async () => {
+    const src = map.getSource('contribs');
+    const data = src ? await src.getData() : null;
+    const layers = map.getStyle().layers.map(l => l.id);
+    const iCase = layers.indexOf('contribs-case');
+    return {
+      loaded: !!contribsFC,
+      sourceAdded: !!src,
+      shownYear: contribsShownYear,
+      contribLayers: layers.filter(l => l.indexOf('contribs') === 0),
+      orderAround: iCase >= 0 ? layers.slice(Math.max(0, iCase - 3), iCase + 5) : null,
+      lineColor: map.getPaintProperty('contribs-line', 'line-color'),
+      lineOpacity: map.getPaintProperty('contribs-line', 'line-opacity'),
+      dataFeats: data && data.features ? data.features.length : -1,
+      hit: map.queryRenderedFeatures(undefined, { layers: ['contribs-line', 'contribs-pt', 'contribs-fill'] })
+        .map(f => f.properties && f.properties.name).slice(0, 5),
+      projMid: (() => { const p = map.project([114.75, 40.72]); return [Math.round(p.x), Math.round(p.y)]; })(),
+    };
+  };
+  loadContribs();
   document.getElementById('focusToggle').addEventListener('click', () => {
     focusOn = !focusOn;
     document.getElementById('focusToggle').classList.toggle('on', focusOn);

@@ -57,6 +57,33 @@ fs.copyFileSync(path.join(ROOT, 'events.json'), path.join(SITE, 'events.json'));
 // 策展门户（影院大堂）：portal/ → site/portal/，与舆图同源
 fs.cpSync(path.join(ROOT, 'portal'), path.join(SITE, 'portal'), { recursive: true });
 fs.copyFileSync(path.join(ROOT, 'data/cities.json'), path.join(API, 'cities'));
+
+// 社区贡献合并 → api/contributions.json（与后端 /api/contributions 同构）。
+// contributions/ 不存在或为空则跳过——前端 404 即静默降级，没有叠加层。
+const CONTRIB_DIR = path.join(ROOT, 'contributions');
+if (fs.existsSync(CONTRIB_DIR)) {
+  const contribFeats = [];
+  (function walk(d) {
+    fs.readdirSync(d, { withFileTypes: true }).forEach(e => {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) return walk(p);
+      if (!/\.(geojson|json)$/i.test(e.name)) return;
+      try {
+        const fc = JSON.parse(fs.readFileSync(p, 'utf8'));
+        if (fc.type !== 'FeatureCollection' || !Array.isArray(fc.features)) return;
+        for (const f of fc.features) {
+          const t = f && f.geometry && f.geometry.type;
+          if (t === 'Point' || t === 'LineString' || t === 'Polygon') contribFeats.push(f);
+        }
+      } catch (_) { /* 单个坏文件不拖垮整份 */ }
+    });
+  })(CONTRIB_DIR);
+  if (contribFeats.length) {
+    fs.writeFileSync(path.join(API, 'contributions.json'),
+      JSON.stringify({ type: 'FeatureCollection', features: contribFeats }));
+    console.log(`  · 社区贡献 ${contribFeats.length} 条已并入叠加层`);
+  }
+}
 fs.copyFileSync(
   path.join(ROOT, 'data/eras/index.json'),
   path.join(API, 'eras', 'index.json'));

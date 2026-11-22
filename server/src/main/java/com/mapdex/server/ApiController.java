@@ -20,6 +20,7 @@ import java.util.Map;
  *   GET /api/cities        历史名城
  *   GET /api/eras          时代切片清单
  *   GET /api/eras/{year}   按年份取政权疆域 GeoJSON（服务端解析最近切片）
+ *   GET /api/contributions 社区贡献合并（contributions/ → 单个 FeatureCollection）
  *   GET /healthz           探活
  */
 @RestController
@@ -62,6 +63,12 @@ public class ApiController {
     public ResponseEntity<byte[]> eraSlice(@PathVariable int year,
                                            @RequestHeader(value = "If-None-Match", required = false) String inm) {
         return serve(store.eraFile(store.resolveEra(year)), inm);
+    }
+
+    /** 社区贡献合并（contributions/ 缺失或为空时返回空 FeatureCollection） */
+    @GetMapping(value = "/api/contributions", produces = "application/geo+json;charset=UTF-8")
+    public ResponseEntity<byte[]> contributions(@RequestHeader(value = "If-None-Match", required = false) String inm) {
+        return serve(store.contributions(), inm);
     }
 
     @GetMapping(value = "/healthz", produces = "application/json;charset=UTF-8")

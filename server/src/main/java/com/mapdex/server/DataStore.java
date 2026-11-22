@@ -1,7 +1,10 @@
 package com.mapdex.server;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -10,8 +13,10 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Stream;
 
 /**
  * 数据访问层：从项目根目录的 data/ 与 events.json 读取数据，
@@ -37,6 +42,7 @@ public class DataStore {
 
     private final Path dataDir;
     private final Path eventsFile;
+    private final Path contribDir;
     private final ObjectMapper mapper = new ObjectMapper();
     private final ConcurrentHashMap<String, Cached> cache = new ConcurrentHashMap<>();
 
@@ -45,10 +51,18 @@ public class DataStore {
     private volatile List<Event> eventList;
     private volatile long eventsMtime = -1;
 
+    /** 社区贡献目录指纹：文件数 + 最大 mtime，变了才重新合并 */
+    private record ContribState(int count, long maxMtime) {}
+
+    private volatile ContribState contribState;
+    private volatile Cached contribCache;
+
     public DataStore(@Value("${mapdex.data-dir}") Path dataDir,
-                     @Value("${mapdex.events-file}") Path eventsFile) {
+                     @Value("${mapdex.events-file}") Path eventsFile,
+                     @Value("${mapdex.contrib-dir}") Path contribDir) {
         this.dataDir = dataDir;
         this.eventsFile = eventsFile;
+        this.contribDir = contribDir;
     }
 
     @PostConstruct
@@ -126,6 +140,60 @@ public class DataStore {
 
     public Cached eraFile(EraEntry era) {
         return read(dataDir.resolve("eras").resolve(era.f()), "eras/" + era.f());
+    }
+
+    /**
+     * 社区贡献合并：contributions/&lt;handle&gt;/*.geojson → 单个 FeatureCollection。
+     * 目录可不存在（返回空集）；单个坏文件跳过不拖垮整份；入库门禁以
+     * tools/validate-contribution.js 为准，这里只做上屏所需的最基础过滤。
+     */
+    public Cached contributions() {
+        List<Path> files = new ArrayList<>();
+        if (Files.isDirectory(contribDir)) {
+            try (Stream<Path> walk = Files.walk(contribDir)) {
+                walk.filter(Files::isRegularFile)
+                    .filter(p -> {
+                        String n = p.getFileName().toString().toLowerCase();
+                        return n.endsWith(".geojson") || n.endsWith(".json");
+                    })
+                    .forEach(files::add);
+            } catch (IOException e) {
+                throw new UncheckedIOException("扫描贡献目录失败: " + contribDir, e);
+            }
+        }
+        long maxMtime = 0;
+        for (Path p : files) {
+            try {
+                maxMtime = Math.max(maxMtime, Files.getLastModifiedTime(p).toMillis());
+            } catch (IOException ignored) { /* 拿不到 mtime 的文件不参与指纹 */ }
+        }
+        ContribState st = new ContribState(files.size(), maxMtime);
+        synchronized (this) {
+            if (contribCache != null && st.equals(contribState)) return contribCache;
+            ArrayNode feats = mapper.createArrayNode();
+            for (Path p : files) {
+                try {
+                    JsonNode root = mapper.readTree(p.toFile());
+                    if (!"FeatureCollection".equals(root.path("type").asText())) continue;
+                    for (JsonNode f : root.path("features")) {
+                        String g = f.path("geometry").path("type").asText("");
+                        if (g.equals("Point") || g.equals("LineString") || g.equals("Polygon")) feats.add(f);
+                    }
+                } catch (IOException ignored) { /* 单个坏文件不拖垮整份 */ }
+            }
+            ObjectNode fc = mapper.createObjectNode();
+            fc.put("type", "FeatureCollection");
+            fc.set("features", feats);
+            byte[] body;
+            try {
+                body = mapper.writeValueAsBytes(fc);
+            } catch (IOException e) {
+                throw new UncheckedIOException("合并贡献数据失败", e);
+            }
+            contribState = st;
+            contribCache = new Cached(body, maxMtime, body.length);
+            return contribCache;
+        }
     }
 
     private Cached read(Path p, String key) {

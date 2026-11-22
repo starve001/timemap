@@ -112,7 +112,7 @@ mapdex/
 
 版图切片来自上游 Cliopatria，全球一致但细部粗。长城线走法、关隘位置、河道改易这类增量靠社区描，入口是地图右侧的 **✎ 勘绘台**：拓底稿 → 描 → 自检 → 导出或一键递呈到自己的 fork。
 
-所有 PR 由 GitHub Actions 跑 `tools/validate-contribution.js` 把关（几何合法性、字段完整、依据必填、许可声明、体积与顶点预算），不合格直接拦住合并。规则与字段说明见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+所有 PR 由 GitHub Actions 跑 `tools/validate-contribution.js` 把关（几何合法性、字段完整、依据必填、许可声明、体积与顶点预算），不合格直接拦住合并；合并后的贡献由构建并入 `/api/contributions`，以石绿叠加层上图，随存续年份自动显隐。规则与字段说明见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 数据来源与授权
 
