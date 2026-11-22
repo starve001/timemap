@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """冒烟：浏览态点选政权信息卡（触屏可用性）——点政权钉卡、点空白/Esc 收起。
-前置：本机服务已启动（java -jar server/target/mapdex-server.jar）。用法：python tools/smoke-tap.py""""""
+前置：本机服务已启动（java -jar server/target/mapdex-server.jar）。用法：python tools/smoke-tap.py"""
 from playwright.sync_api import sync_playwright
 
 fails = []
