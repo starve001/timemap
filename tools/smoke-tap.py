@@ -21,10 +21,14 @@ with sync_playwright() as p:
         t = pg.locator("#mapTip")
         return t.get_attribute("class") or "", t.inner_text()
 
-    # 点唐境（画面中心偏左，避开政权标签）
-    pg.mouse.click(700, 400)
-    pg.wait_for_timeout(800)
-    cls, txt = tip()
+    # 点唐境（画面中心偏左，避开政权标签）；无头软渲染首帧慢，带重试
+    cls, txt = "", ""
+    for _ in range(6):
+        pg.mouse.click(700, 400)
+        pg.wait_for_timeout(1500)
+        cls, txt = tip()
+        if "show" in cls and "唐" in txt:
+            break
     check("点政权出卡", "show" in cls, txt[:60].replace("\n", " "))
     check("卡含政权名与切片", "唐" in txt and "700" in txt, txt[:80].replace("\n", " "))
 
