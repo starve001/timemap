@@ -61,6 +61,11 @@ fs.cpSync(path.join(ROOT, 'portal'), path.join(SITE, 'portal'), { recursive: tru
 fs.copyFileSync(path.join(ROOT, 'data/cities.json'), path.join(API, 'cities'));
 fs.copyFileSync(path.join(ROOT, 'data/cities.json'), path.join(API, 'cities.json'));
 
+// 历史河渠山川：江河运河随年代显隐，山脉静态走向示意（缺失则前端降级）
+if (fs.existsSync(path.join(ROOT, 'data/geography.json'))) {
+  fs.copyFileSync(path.join(ROOT, 'data/geography.json'), path.join(API, 'geography.json'));
+}
+
 // 社区贡献合并 → api/contributions.json（与后端 /api/contributions 同构）。
 // contributions/ 不存在或为空则跳过——前端 404 即静默降级，没有叠加层。
 const CONTRIB_DIR = path.join(ROOT, 'contributions');

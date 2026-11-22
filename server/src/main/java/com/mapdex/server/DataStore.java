@@ -127,6 +127,23 @@ public class DataStore {
         return read(dataDir.resolve("cities.json"), "cities.json");
     }
 
+    /** 历史河渠山川（data/geography.json；缺失时返回空集，前端图层自然不出现） */
+    public Cached geography() {
+        Path p = dataDir.resolve("geography.json");
+        if (!Files.exists(p)) {
+            try {
+                ObjectNode fc = mapper.createObjectNode();
+                fc.put("type", "FeatureCollection");
+                fc.set("features", mapper.createArrayNode());
+                byte[] body = mapper.writeValueAsBytes(fc);
+                return new Cached(body, 0, body.length);
+            } catch (IOException e) {
+                throw new UncheckedIOException("构造空河渠数据失败", e);
+            }
+        }
+        return read(p, "geography.json");
+    }
+
     /** 按年份解析时代切片：取不晚于该年份的最近切片 */
     public EraEntry resolveEra(int year) {
         Manifest m = manifest();

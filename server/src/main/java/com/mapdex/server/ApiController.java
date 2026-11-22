@@ -21,6 +21,7 @@ import java.util.Map;
  *   GET /api/eras          时代切片清单
  *   GET /api/eras/{year}   按年份取政权疆域 GeoJSON（服务端解析最近切片）
  *   GET /api/contributions 社区贡献合并（contributions/ → 单个 FeatureCollection）
+ *   GET /api/geography     历史河渠山川（江河运河随年代显隐）
  *   GET /healthz           探活
  */
 @RestController
@@ -70,6 +71,12 @@ public class ApiController {
     @GetMapping(value = "/api/contributions", produces = "application/geo+json;charset=UTF-8")
     public ResponseEntity<byte[]> contributions(@RequestHeader(value = "If-None-Match", required = false) String inm) {
         return serve(store.contributions(), inm);
+    }
+
+    /** 历史河渠山川：江河、运河随年代显隐，山脉静态走向示意（缺失时返回空集） */
+    @GetMapping(value = {"/api/geography", "/api/geography.json"}, produces = "application/geo+json;charset=UTF-8")
+    public ResponseEntity<byte[]> geography(@RequestHeader(value = "If-None-Match", required = false) String inm) {
+        return serve(store.geography(), inm);
     }
 
     @GetMapping(value = "/healthz", produces = "application/json;charset=UTF-8")

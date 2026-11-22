@@ -1194,6 +1194,7 @@ body.ed-on .ed-card { display: flex; }
       <span>
         <button class="layer-btn" id="focusToggle" title="只显示当前年份±50年的事件">◎ 聚焦当前</button>
         <button class="layer-btn" id="erasToggle" title="叠加当前年代的政权版图（数据随时间轴自动切换）">🏛 政权版图</button>
+        <button class="layer-btn on" id="geoToggle" style="display:none" title="叠加历史河渠与山川：江河、运河随年代显隐（黄河改道/隋元运河换线），山脉为走向示意">💧 河渠山川</button>
         <span class="tl-attr">底图 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors · © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a> · 版图 <a href="https://github.com/Seshat-Global-History-Databank/cliopatria" target="_blank" rel="noopener">Cliopatria</a>/Seshat (CC BY 4.0) · 引擎 MapLibre GL</span>
       </span>
     </div>
@@ -2553,15 +2554,17 @@ function writeHash() {
     // 斜杠编码成 %2F，门户跳板的深链正则只认裸 /，分享出去的链接会失配
     let q = 'y=' + encodeURIComponent(cy);
     if (!all) q += '&c=' + encodeURIComponent(cats);
+    const gf = mapHooks.geoFlag ? mapHooks.geoFlag() : null;
     if (mh) {
       q += '&map=' + mh; // 仅数字/点/斜杠，hash 内合法且可读
       if (ef === '0') q += '&e=0'; // 关闭状态才写入，缺省=开启
+      if (gf === '0') q += '&g=0'; // 河渠山川同规则
       if (ff) q += '&f=' + encodeURIComponent(ff);
     } else {
       // 地图模块未就绪（顶层 await 的降级加载可拖数秒）：hook 全空，
-      // 保留原 hash 里的 map/e/f，别把深链抹成只有 y
+      // 保留原 hash 里的 map/e/f/g，别把深链抹成只有 y
       const cur = location.hash.replace(/^#/, '');
-      ['map', 'e', 'f'].forEach(k => {
+      ['map', 'e', 'f', 'g'].forEach(k => {
         const m = cur.match(new RegExp('(?:^|&)' + k + '=([^&]*)'));
         if (m) q += '&' + k + '=' + m[1];
       });
@@ -3254,6 +3257,11 @@ if (maplibregl) {
     try { return new URLSearchParams(location.hash.replace(/^#/, '')).get('f') === '1'; }
     catch (_) { return false; }
   })();
+  // 历史河渠山川开关（hash g=0 关闭，缺省开）
+  const geoRequested = (() => {
+    try { return new URLSearchParams(location.hash.replace(/^#/, '')).get('g') !== '0'; }
+    catch (_) { return true; }
+  })();
   /* 底图弱化：现代国界虚化压暗，隐藏国家名标注（保留城市/海洋名） */
   function softenBasemap() {
     try {
@@ -3388,7 +3396,7 @@ if (maplibregl) {
   /* ---------- 挂载双向联动钩子 ---------- */
   mapHooks.sync = () => {
     if (!mapReady) return;
-    updateEra(); updateCities(); updateContribs();
+    updateEra(); updateCities(); updateContribs(); updateGeography();
   };
 
   mapHooks.sliceInfo = () => {
@@ -3824,6 +3832,129 @@ if (maplibregl) {
     };
   };
   loadContribs();
+
+  /* ============================================================
+   * 历史河渠山川层（data/geography.json → /api/geography.json）
+   * 江河、运河按存续年份随时间轴显隐——黄河四道按改道切换、
+   * 隋运河（605/608/610）与元运河（1289）先后登场；山脉为静态
+   * 走向示意（地形不随时间变化）。开关在时间轴右上，hash g=0 关。
+   * 走线为示意简化，依据标注在各要素 src（谭其骧《中国历史地图集》）
+   * ============================================================ */
+  let geoOn = geoRequested, geoFC = null, geoShownYear = null, geoTipShown = false;
+  async function loadGeography() {
+    try {
+      const r = await fetch(API_BASE + 'geography.json');
+      if (!r.ok) return; // 没有河渠数据：开关不出现，其余功能不受影响
+      const fc = await r.json();
+      if (!fc || !Array.isArray(fc.features) || !fc.features.length) return;
+      geoFC = fc;
+      document.getElementById('geoToggle').style.display = '';
+      const setup = () => {
+        ensureGeoLayers();
+        updateGeography(true);
+      };
+      if (mapReady) setup();
+      else map.once('load', setup); // 同 loadContribs：addSource 须等样式就绪
+    } catch (e) {
+      window.__mapErrors.push('geo: ' + (e && e.message || e));
+    }
+  }
+  function ensureGeoLayers() {
+    if (map.getSource('geo')) return;
+    map.addSource('geo', { type: 'geojson', data: EMPTY_FC });
+    // 注记语义，叠在版图填充之上（勘绘台层后开后加，自然仍居顶）
+    map.addLayer({
+      id: 'geo-river', type: 'line', source: 'geo',
+      filter: ['==', ['get', 'kind'], 'river'],
+      paint: { 'line-color': '#5E8FB5', 'line-opacity': 0.85,
+        'line-width': ['coalesce', ['get', 'w'], 1.6] },
+    });
+    map.addLayer({
+      id: 'geo-canal', type: 'line', source: 'geo',
+      filter: ['==', ['get', 'kind'], 'canal'],
+      paint: { 'line-color': '#8FB0CE', 'line-opacity': 0.9,
+        'line-width': ['coalesce', ['get', 'w'], 1.6], 'line-dasharray': [4, 2.5] },
+    });
+    map.addLayer({
+      id: 'geo-range', type: 'line', source: 'geo',
+      filter: ['==', ['get', 'kind'], 'range'],
+      layout: { 'line-cap': 'round' },
+      paint: { 'line-color': '#7A7263', 'line-opacity': 0.5, 'line-width': 4 },
+    });
+    map.addLayer({
+      id: 'geo-labels', type: 'symbol', source: 'geo',
+      minzoom: 1.2,
+      layout: {
+        'symbol-placement': 'line',
+        'text-field': ['get', 'name'],
+        'text-font': ['Noto Sans Regular'],
+        'text-size': 10.5,
+        'text-letter-spacing': 0.12,
+        'text-max-angle': 60,
+      },
+      paint: {
+        'text-color': ['case', ['==', ['get', 'kind'], 'river'], '#9FC1DC',
+          ['==', ['get', 'kind'], 'canal'], '#A9C4DC', '#A39B8B'],
+        'text-halo-color': 'rgba(0,0,0,.8)', 'text-halo-width': 1.2, 'text-opacity': 0.92,
+      },
+    });
+    const y2s = v => v == null ? '' : (v < 0 ? `前${-v}` : `${v}`);
+    ['geo-river', 'geo-canal'].forEach(id => {
+      map.on('mousemove', id, (e) => {
+        const f = e.features && e.features[0];
+        if (!f) return;
+        geoTipShown = true;
+        map.getCanvas().style.cursor = 'pointer';
+        const p = f.properties || {};
+        showMapTipContent(p.kind === 'canal' ? '运河（人工水道）' : '河道',
+          p.name || '（未命名）',
+          [p.start_year != null && p.end_year != null ? `存续 ${y2s(p.start_year)}–${y2s(p.end_year)} 年` : '',
+            p.src || ''].filter(Boolean).join(' · '), e.point);
+      });
+      map.on('mouseleave', id, () => {
+        geoTipShown = false;
+        if (!tipPinned) hideMapTip();
+        map.getCanvas().style.cursor = '';
+      });
+    });
+    document.getElementById('geoToggle').addEventListener('click', () => {
+      geoOn = !geoOn;
+      document.getElementById('geoToggle').classList.toggle('on', geoOn);
+      ['geo-river', 'geo-canal', 'geo-range', 'geo-labels'].forEach(id => {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', geoOn ? 'visible' : 'none');
+      });
+      hideMapTip();
+      scheduleHash();
+    });
+    document.getElementById('geoToggle').classList.toggle('on', geoOn);
+    if (!geoOn) ['geo-river', 'geo-canal', 'geo-range', 'geo-labels'].forEach(id => {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
+    });
+  }
+  function updateGeography(force) {
+    if (!geoFC || !mapReady || !map.getSource('geo') || !geoOn) return;
+    const y = Math.round(currentYear());
+    if (!force && y === geoShownYear) return;
+    geoShownYear = y;
+    // 存续区间含当年才上屏：黄河改道、运河换线都在这里发生
+    const feats = geoFC.features.filter(f => {
+      const p = f.properties || {};
+      if (typeof p.start_year !== 'number' || typeof p.end_year !== 'number') return true;
+      return p.start_year <= y && y <= p.end_year;
+    });
+    map.getSource('geo').setData({ type: 'FeatureCollection', features: feats });
+    if (geoTipShown) { hideMapTip(); geoTipShown = false; } // 悬停的水道可能已被年份滤掉
+  }
+  // 诊断钩子（与 __contribsDebug 同款模式）
+  window.__geoDebug = async () => {
+    const src = map.getSource('geo');
+    const data = src ? await src.getData() : null;
+    return {
+      loaded: !!geoFC, sourceAdded: !!src, shownYear: geoShownYear,
+      names: data && data.features ? data.features.map(f => f.properties.name) : [],
+    };
+  };
+  loadGeography();
   document.getElementById('focusToggle').addEventListener('click', () => {
     focusOn = !focusOn;
     document.getElementById('focusToggle').classList.toggle('on', focusOn);
@@ -3834,6 +3965,7 @@ if (maplibregl) {
   });
   mapHooks.erasFlag = () => (erasOn ? null : '0');
   mapHooks.focusFlag = () => (focusOn ? '1' : null);
+  mapHooks.geoFlag = () => (geoOn ? null : '0');
 
   /* ---------- 历史名城按年代筛选 ---------- */
   let citiesSig = '';
