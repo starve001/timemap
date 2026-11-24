@@ -141,6 +141,11 @@ class SmokeTest {
         assertNotNull(tile.getBody());
         assertTrue(tile.getBody().length > 100, "WebP 瓦片体积异常");
 
+        ResponseEntity<byte[]> dem = http.getForEntity("/api/basemap/dem/0/0/0.webp", byte[].class);
+        assertEquals(HttpStatus.OK, dem.getStatusCode());
+        assertNotNull(dem.getBody());
+        assertTrue(dem.getBody().length > 100, "DEM WebP 瓦片体积异常");
+
         ResponseEntity<byte[]> bad = http.getForEntity("/api/basemap/relief/9/0/0.webp", byte[].class);
         assertEquals(HttpStatus.NOT_FOUND, bad.getStatusCode());
     }

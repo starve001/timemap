@@ -97,12 +97,15 @@ mapdex/
 │   ├── pom.xml              # Maven 配置
 │   └── build.bat            # Windows 构建脚本
 ├── data/                    # 运行时数据
-│   ├── basemap/             # 同源自托管自然底图（Natural Earth 矢量 + 暗色地形晕渲 WebP）
-│   ├── eras/                # 39 个版图切片（world_*.geojson）+ 中文名对照表
-│   ├── geography.json       # 历史河渠山川（江河运河随年代显隐）
-│   └── cities.json          # 城市数据
+│   ├── basemap/             # 同源自托管自然底图（Natural Earth 1:10m 分级水系海岸 + Terrarium DEM 高程瓦片 + 暗色晕渲兜底）
+│   ├── eras/                # 47 个版图切片（world_*.geojson，含先秦至东汉及西域精修分层）+ 中文名对照表
+│   ├── geography.json       # 历史河道、运河、古湖泽（罗布泊/居延海/云梦泽等随年代演替）与山脉注记
+│   └── cities.json          # 历史名城与西域绿洲王治/关塞数据（103 座）
 ├── events.json              # 历史事件库（304 条，公元前 221 年 ~ 公元 1918 年）
-├── tools/                   # 数据处理脚本（切片构建 / 中文名注入 / 数据校验）
+├── tools/                   # 数据处理脚本（底图/水系/版图切片构建 / 中文名注入 / 数据校验）
+│   ├── build-basemap.py     # 构建 1:10m 去水库天然水系矢量 + Terrarium 高程无损 WebP 瓦片
+│   ├── build-geography.py   # 构建无缝衔接的黄河历代五道、西域古水系、时序古湖泽与山脉脊线
+│   ├── build-qin-han-eras.py# 构建先秦/秦汉至东汉 14 个关键年份版图与西域都护/绿洲城郭精修层
 │   ├── simplify-eras.ps1    # 批量几何简化全部切片（mapshaper，默认保留 75%）
 │   ├── validate-contribution.js  # 社区贡献 GeoJSON 的入库门禁（CI 与本地通用）
 │   └── cliopatria/          # 数据源说明（原始数据体积过大未入库，见下）

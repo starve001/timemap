@@ -28,8 +28,8 @@ for (const f of fs.readdirSync(DIR)) {
     const pr = feat.properties || (feat.properties = {});
     total++;
     const corr = CORRECTIONS[f] || {};
-    const nz = corr[pr.NAME] || zh[pr.NAME] || '';
-    const sz = zh[pr.SUBJECTO] || '';
+    const nz = corr[pr.NAME] || zh[pr.NAME] || pr._nz || '';
+    const sz = zh[pr.SUBJECTO] || pr._sz || '';
     // 外接矩形面积（度²）与重心点：供前端筛选/标注大政权
     let x0 = 180, x1 = -180, y0 = 90, y1 = -90;
     (function walk(c2) {

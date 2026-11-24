@@ -153,7 +153,7 @@ public class DataStore {
 
     /** 自托管 Natural Earth 暗色地形晕渲 WebP 瓦片（越界或缺失返回 null） */
     public Cached basemapReliefTile(int z, int x, int y) {
-        if (z < 0 || z > 6) return null;
+        if (z < 0 || z > 7) return null;
         int limit = 1 << z;
         if (x < 0 || x >= limit || y < 0 || y >= limit) return null;
         Path p = dataDir.resolve("basemap").resolve("relief")
@@ -162,6 +162,19 @@ public class DataStore {
                 .resolve(y + ".webp");
         if (!Files.isRegularFile(p)) return null;
         return read(p, "basemap/relief/" + z + "/" + x + "/" + y + ".webp");
+    }
+
+    /** 自托管 Terrarium 高程 DEM 无损 WebP 瓦片（供客户端实时多向山体晕渲、高程设色与 3D 地形使用） */
+    public Cached basemapDemTile(int z, int x, int y) {
+        if (z < 0 || z > 8) return null;
+        int limit = 1 << z;
+        if (x < 0 || x >= limit || y < 0 || y >= limit) return null;
+        Path p = dataDir.resolve("basemap").resolve("dem")
+                .resolve(String.valueOf(z))
+                .resolve(String.valueOf(x))
+                .resolve(y + ".webp");
+        if (!Files.isRegularFile(p)) return null;
+        return read(p, "basemap/dem/" + z + "/" + x + "/" + y + ".webp");
     }
 
     /** 按年份解析时代切片：取不晚于该年份的最近切片 */

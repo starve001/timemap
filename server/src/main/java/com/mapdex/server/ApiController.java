@@ -97,6 +97,21 @@ public class ApiController {
                                                 @RequestHeader(value = "If-None-Match", required = false) String inm) {
         DataStore.Cached c = store.basemapReliefTile(z, x, y);
         if (c == null) return ResponseEntity.notFound().build();
+        return serveTile(c, inm);
+    }
+
+    /** 自托管 Terrarium DEM 高程无损 WebP 瓦片 */
+    @GetMapping(value = "/api/basemap/dem/{z}/{x}/{y}.webp", produces = "image/webp")
+    public ResponseEntity<byte[]> basemapDem(@PathVariable int z,
+                                             @PathVariable int x,
+                                             @PathVariable int y,
+                                             @RequestHeader(value = "If-None-Match", required = false) String inm) {
+        DataStore.Cached c = store.basemapDemTile(z, x, y);
+        if (c == null) return ResponseEntity.notFound().build();
+        return serveTile(c, inm);
+    }
+
+    private ResponseEntity<byte[]> serveTile(DataStore.Cached c, String inm) {
         String etag = c.etag();
         HttpHeaders h = new HttpHeaders();
         h.setCacheControl(CacheControl.maxAge(86400, TimeUnit.SECONDS).cachePublic());

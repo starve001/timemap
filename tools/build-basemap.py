@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-tools/build-basemap.py — 构建同源自托管 Natural Earth 暗色古风自然底图资产
+tools/build-basemap.py — 构建同源自托管 1:10m 分级水系自然底图 + Terrarium 高程 DEM 瓦片
 
 产物（输出至 data/basemap/）：
-  1. natural-earth.geojson      1:50m 纯自然矢量（陆地 / 200m 海深 / 湖泊 / 大河[裁除中国历史河网区] / 15° 经纬网）
-  2. relief/{z}/{x}/{y}.webp    z0–z4 512px Web 墨卡托暗色古风地形晕渲瓦片（341 张，基于 GRAY_50M_SR_OB）
+  1. natural-earth.geojson      1:10m 海岸线 / 200m 海深 / 去水库天然湖泊(含古咸海等) / 1:10m 分级水系(精确接管黄河下游) / 15° 经纬网
+  2. dem/{z}/{x}/{y}.webp       Terrarium 高程无损 WebP 瓦片（z0–z5 全球全覆盖 + z6–z7 丝路西域与东亚高清区，供 GPU hillshade / color-relief / 3D 地形使用）
+  3. relief/{z}/{x}/{y}.webp    z0–z4 512px 基于真实高程设色与多向晕渲的暗色古风兜底瓦片（341 张）
 
-全部数据源来自 Natural Earth (Public Domain)，下载包缓存在 .tmp-basemap-src/（已 gitignore）。
-用法：python tools/build-basemap.py [--force]
+全部数据源来自 Natural Earth 与 AWS Terrarium Elevation Tiles (Public Domain)，缓存在 .tmp-basemap-src/。
+用法：python tools/build-basemap.py
 """
 from __future__ import annotations
 
@@ -16,13 +17,12 @@ import argparse
 import json
 import math
 import os
-import subprocess
+import shutil
 import sys
 import zipfile
 from pathlib import Path
 
 import numpy as np
-import requests
 import shapefile
 from PIL import Image, ImageDraw
 from scipy.ndimage import map_coordinates
@@ -31,63 +31,30 @@ Image.MAX_IMAGE_PIXELS = None
 
 ROOT = Path(__file__).resolve().parent.parent
 CACHE_DIR = ROOT / ".tmp-basemap-src"
+DEM_RAW_DIR = CACHE_DIR / "terrarium_raw"
 OUT_DIR = ROOT / "data" / "basemap"
 RELIEF_DIR = OUT_DIR / "relief"
+DEM_OUT_DIR = OUT_DIR / "dem"
 
-SOURCES = {
-    "ne_50m_land.zip": "https://naciscdn.org/naturalearth/50m/physical/ne_50m_land.zip",
-    "ne_50m_lakes.zip": "https://naciscdn.org/naturalearth/50m/physical/ne_50m_lakes.zip",
-    "ne_50m_rivers_lake_centerlines.zip": "https://naciscdn.org/naturalearth/50m/physical/ne_50m_rivers_lake_centerlines.zip",
-    "ne_10m_bathymetry_K_200.zip": "https://naciscdn.org/naturalearth/10m/physical/ne_10m_bathymetry_K_200.zip",
-    "GRAY_50M_SR_OB.zip": "https://naciscdn.org/naturalearth/50m/raster/GRAY_50M_SR_OB.zip",
+# 由 data/geography.json 按年代动态显隐的历史演变湖泊（静态底图不重复绘制现代形态）
+TIME_VARYING_LAKE_NAMES = {
+    "Hongze Hu",
+    "Weishan Hu",
+    "Dongting Hu",
+    "Poyang Hu",
+    "Gaoyou Hu",
+    "South Aral Sea",
+    "North Aral Sea",
 }
 
-# 中国历史水系核心裁除区（避免现代黄河/长江/淮河/珠江与 data/geography.json 冲突）
-CN_RIVER_EXCLUDE_BOXES = (
-    (113.2, 32.0, 123.0, 40.5),  # 黄淮下游区（保留河套/陕晋中上游至郑州外接处）
-    (104.5, 22.0, 123.0, 33.5),  # 长江中下游 / 汉水 / 珠江区
-)
-
-
-def download_all(force: bool) -> None:
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    session = requests.Session()
-    session.headers.update({"User-Agent": "MAPDEX-Basemap-Builder/1.0"})
-    for name, url in SOURCES.items():
-        dst = CACHE_DIR / name
-        if dst.exists() and dst.stat().st_size > 0 and not force:
-            print(f"[cache] {name} ({dst.stat().st_size / 1024:.1f} KB)", flush=True)
-            continue
-        print(f"[fetch] {url} -> {dst}", flush=True)
-        tmp = dst.with_suffix(".zip.part")
-        if tmp.exists():
-            tmp.unlink()
-        ok = False
-        for attempt in range(1, 4):
-            try:
-                with session.get(url, stream=True, timeout=(15, 60)) as r:
-                    r.raise_for_status()
-                    with open(tmp, "wb") as f:
-                        for chunk in r.iter_content(chunk_size=1 << 16):
-                            if chunk:
-                                f.write(chunk)
-                ok = True
-                break
-            except Exception as exc:
-                print(f"        requests attempt {attempt} failed: {exc}", flush=True)
-        if not ok:
-            res = subprocess.run(
-                ["curl.exe", "-fL", "-C", "-", "--retry", "8", "--retry-all-errors", "--retry-delay", "2", "--connect-timeout", "15", "--speed-limit", "2000", "--speed-time", "30", "-o", str(tmp), url],
-                check=False,
-            )
-            if res.returncode != 0:
-                raise RuntimeError(f"Failed to download {url}")
-        tmp.replace(dst)
-        print(f"        saved {dst.stat().st_size / 1024:.1f} KB", flush=True)
+# 古咸海 / 乍得湖 / 特斯科科湖（前哥伦布阿兹特克湖岛）在全时间轴 [-221, 1918] 均应取现代干涸前的历史满水岸线
+HISTORIC_BASE_LAKE_NAMES = {"Aral Sea", "Lake Chad", "Lake Texcoco"}
 
 
 def extract_zip(zip_name: str) -> Path:
     src = CACHE_DIR / zip_name
+    if not src.exists():
+        raise FileNotFoundError(f"Missing cached zip: {src} (run .tmp-basemap-src/fetch_upstream.py first)")
     dst = CACHE_DIR / "unpacked" / src.stem
     if dst.exists() and any(dst.iterdir()):
         return dst
@@ -111,9 +78,7 @@ def _perp_dist(p: tuple[float, float], a: tuple[float, float], b: tuple[float, f
         return math.hypot(p[0] - a[0], p[1] - a[1])
     t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy)
     t = max(0.0, min(1.0, t))
-    proj_x = a[0] + t * dx
-    proj_y = a[1] + t * dy
-    return math.hypot(p[0] - proj_x, p[1] - proj_y)
+    return math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy))
 
 
 def rdp(pts: list[tuple[float, float]], tol: float) -> list[tuple[float, float]]:
@@ -143,7 +108,7 @@ def rdp(pts: list[tuple[float, float]], tol: float) -> list[tuple[float, float]]
     return [pts[i] for i in range(n) if keep[i]]
 
 
-def ring_area(ring: list[tuple[float, float]] | list[list[float]]) -> float:
+def ring_area(ring: list) -> float:
     if len(ring) < 3:
         return 0.0
     s = 0.0
@@ -194,19 +159,14 @@ def simplify_line(line: list, tol: float, decimals: int) -> list[list[float]] | 
     if tol > 0.0 and len(pts) > 2:
         pts = rdp(pts, tol)
     cleaned = dedup_and_round(pts, decimals)
-    if len(cleaned) < 2:
-        return None
-    return cleaned
+    return cleaned if len(cleaned) >= 2 else None
 
 
 def clean_polygon_geom(geom: dict, tol: float, decimals: int, min_outer_area: float = 0.0) -> dict | None:
     gtype = geom.get("type")
     coords = geom.get("coordinates") or []
-    if gtype == "Polygon":
-        polys = [coords]
-    elif gtype == "MultiPolygon":
-        polys = coords
-    else:
+    polys = [coords] if gtype == "Polygon" else (coords if gtype == "MultiPolygon" else [])
+    if not polys:
         return None
 
     kept_polys: list[list[list[list[float]]]] = []
@@ -230,73 +190,60 @@ def clean_polygon_geom(geom: dict, tol: float, decimals: int, min_outer_area: fl
     return {"type": "MultiPolygon", "coordinates": kept_polys}
 
 
-def point_in_ring(lon: float, lat: float, ring: list) -> bool:
-    inside = False
-    n = len(ring)
-    j = n - 1
-    for i in range(n):
-        xi, yi = ring[i][0], ring[i][1]
-        xj, yj = ring[j][0], ring[j][1]
-        if ((yi > lat) != (yj > lat)) and (lon < (xj - xi) * (lat - yi) / ((yj - yi) or 1e-12) + xi):
-            inside = not inside
-        j = i
-    return inside
+def is_in_eurasia_focus(bbox: list[float] | tuple[float, ...]) -> bool:
+    return bbox[2] >= 50.0 and bbox[0] <= 142.0 and bbox[3] >= 12.0 and bbox[1] <= 56.0
 
 
-def point_in_geom(lon: float, lat: float, geom: dict) -> bool:
-    gtype = geom.get("type")
-    coords = geom.get("coordinates") or []
-    polys = [coords] if gtype == "Polygon" else (coords if gtype == "MultiPolygon" else [])
-    for poly in polys:
-        if not poly:
-            continue
-        if point_in_ring(lon, lat, poly[0]):
-            in_hole = any(point_in_ring(lon, lat, h) for h in poly[1:])
-            if not in_hole:
-                return True
-    return False
-
-
-def in_cn_river_exclude(lon: float, lat: float) -> bool:
-    for min_x, min_y, max_x, max_y in CN_RIVER_EXCLUDE_BOXES:
-        if min_x <= lon <= max_x and min_y <= lat <= max_y:
-            return True
-    return False
-
-
-def split_river_coords(coords: list) -> list[list]:
-    segments: list[list] = []
-    cur: list = []
+def clip_yellow_river_downstream(coords: list) -> tuple[list[list], list[list]]:
+    """
+    仅在荥阳桃花峪/广武山 [113.498, 34.965] 截断黄河现代下游（保留河套及晋陕峡谷全段），
+    由 data/geography.json 无缝接管历代黄河四道；同时返回现代 1855 现行道精确坐标供下游脚本复用。
+    """
+    kept_segments: list[list] = []
+    modern_downstream: list[list] = []
+    cur_keep: list = []
+    cur_mod: list = []
     for pt in coords:
-        if in_cn_river_exclude(pt[0], pt[1]):
-            if len(cur) >= 2:
-                segments.append(cur)
-            cur = []
+        lon, lat = float(pt[0]), float(pt[1])
+        is_lower_huang = lon > 113.50 and lat < 39.2
+        if is_lower_huang:
+            cur_mod.append([round(lon, 3), round(lat, 3)])
+            if cur_keep:
+                # 把分水点本身也纳入保留段末端，保证与 geography.json 零缝隙衔接
+                cur_keep.append([113.498, 34.965])
+                if len(cur_keep) >= 2:
+                    kept_segments.append(cur_keep)
+                cur_keep = []
         else:
-            cur.append(pt)
-    if len(cur) >= 2:
-        segments.append(cur)
-    return segments
+            if cur_mod:
+                cur_mod.append([round(lon, 3), round(lat, 3)])
+                if len(cur_mod) >= 2:
+                    modern_downstream.append(cur_mod)
+                cur_mod = []
+            cur_keep.append(pt)
+    if len(cur_keep) >= 2:
+        kept_segments.append(cur_keep)
+    if len(cur_mod) >= 2:
+        modern_downstream.append(cur_mod)
+    return kept_segments, modern_downstream
 
 
 def build_graticules() -> list[dict]:
     feats: list[dict] = []
-    # 经线：-180 到 180 每 15°（避开重复 180，画 -165..180）
     for lon in range(-165, 181, 15):
         coords = [[round(float(lon), 1), round(float(lat), 1)] for lat in range(-80, 81, 5)]
         feats.append({"type": "Feature", "properties": {"k": "grat"}, "geometry": {"type": "LineString", "coordinates": coords}})
-    # 纬线：-75 到 75 每 15°
     for lat in range(-75, 76, 15):
         coords = [[round(float(lon), 1), round(float(lat), 1)] for lon in range(-180, 181, 5)]
         feats.append({"type": "Feature", "properties": {"k": "grat"}, "geometry": {"type": "LineString", "coordinates": coords}})
     return feats
 
 
-def build_vector_geojson() -> tuple[list[dict], bool]:
+def build_vector_geojson() -> list[dict]:
     features: list[dict] = []
 
-    # 1. ne_50m_land
-    land_shp = find_shp(extract_zip("ne_50m_land.zip"))
+    # 1. ne_10m_land (高精度海岸线：渤海湾、山东半岛、朝鲜、交趾、地中海更精细，微小碎礁过滤控体积)
+    land_shp = find_shp(extract_zip("ne_10m_land.zip"))
     land_raw: list[dict] = []
     with shapefile.Reader(str(land_shp)) as sf:
         for sr in sf.iterShapeRecords():
@@ -304,86 +251,247 @@ def build_vector_geojson() -> tuple[list[dict], bool]:
                 continue
             geom = sr.shape.__geo_interface__
             land_raw.append(geom)
-            cg = clean_polygon_geom(geom, tol=0.02, decimals=3, min_outer_area=0.0)
+            cg = clean_polygon_geom(geom, tol=0.018, decimals=3, min_outer_area=0.004)
             if cg:
                 features.append({"type": "Feature", "properties": {"k": "land"}, "geometry": cg})
-    print(f"[vec] land features: {sum(1 for f in features if f['properties']['k'] == 'land')}")
+    print(f"[vec] 10m land features: {sum(1 for f in features if f['properties']['k'] == 'land')}")
 
     # 2. ne_10m_bathymetry_K_200
     k200_shp = find_shp(extract_zip("ne_10m_bathymetry_K_200.zip"))
-    k200_geoms: list[dict] = []
     with shapefile.Reader(str(k200_shp)) as sf:
         for sr in sf.iterShapeRecords():
             if sr.shape.shapeType == shapefile.NULL or not sr.shape.points:
                 continue
-            geom = sr.shape.__geo_interface__
-            k200_geoms.append(geom)
-            cg = clean_polygon_geom(geom, tol=0.15, decimals=2, min_outer_area=0.4)
+            cg = clean_polygon_geom(sr.shape.__geo_interface__, tol=0.14, decimals=2, min_outer_area=0.35)
             if cg:
                 features.append({"type": "Feature", "properties": {"k": "shelf"}, "geometry": cg})
-    pac_in_k200 = any(point_in_geom(-150.0, 0.0, g) for g in k200_geoms)
-    ys_in_k200 = any(point_in_geom(125.0, 35.0, g) for g in k200_geoms)
-    eu_in_k200 = any(point_in_geom(10.0, 50.0, g) for g in k200_geoms)
     print(f"[vec] shelf/K_200 features: {sum(1 for f in features if f['properties']['k'] == 'shelf')}")
-    print(f"[check] K_200 contains Pacific(-150,0)={pac_in_k200}, YellowSea(125,35)={ys_in_k200}, Europe(10,50)={eu_in_k200}")
 
-    # 3. ne_50m_lakes (scalerank <= 6)
-    lakes_shp = find_shp(extract_zip("ne_50m_lakes.zip"))
+    # 3. ne_10m_lakes (剔除全部现代水库 Reservoir + 剔除由 geography.json 动态接管的历史演变湖泊)
+    lakes_shp = find_shp(extract_zip("ne_10m_lakes.zip"))
+    removed_reservoirs = 0
     with shapefile.Reader(str(lakes_shp)) as sf:
         fields = [f[0].lower() for f in sf.fields[1:]]
-        sr_idx = fields.index("scalerank") if "scalerank" in fields else -1
+        sr_idx = fields.index("scalerank")
+        fc_idx = fields.index("featurecla")
+        nm_idx = fields.index("name")
+        zh_idx = fields.index("name_zh") if "name_zh" in fields else -1
         for sr in sf.iterShapeRecords():
             if sr.shape.shapeType == shapefile.NULL or not sr.shape.points:
                 continue
-            rank = sr.record[sr_idx] if sr_idx >= 0 else 0
-            if rank is not None and float(rank) > 6:
+            fcla = str(sr.record[fc_idx] or "")
+            if "reservoir" in fcla.lower():
+                removed_reservoirs += 1
                 continue
-            cg = clean_polygon_geom(sr.shape.__geo_interface__, tol=0.02, decimals=3, min_outer_area=0.0)
+            name = str(sr.record[nm_idx] or "").strip()
+            if name in TIME_VARYING_LAKE_NAMES:
+                continue
+            rank = float(sr.record[sr_idx]) if sr.record[sr_idx] is not None else 0.0
+            in_focus = bool(sr.shape.bbox and is_in_eurasia_focus(sr.shape.bbox))
+            max_rank = 8.0 if in_focus else 5.0
+            if rank > max_rank:
+                continue
+            tol = 0.01 if in_focus else 0.02
+            min_a = 0.0015 if in_focus else 0.008
+            cg = clean_polygon_geom(sr.shape.__geo_interface__, tol=tol, decimals=3, min_outer_area=min_a)
             if cg:
-                features.append({"type": "Feature", "properties": {"k": "lake"}, "geometry": cg})
-    print(f"[vec] lake features: {sum(1 for f in features if f['properties']['k'] == 'lake')}")
+                props: dict = {"k": "lake", "sr": int(round(rank))}
+                zh_name = str(sr.record[zh_idx] or "").strip() if zh_idx >= 0 else ""
+                if zh_name and in_focus and rank <= 6:
+                    props["nz"] = zh_name
+                features.append({"type": "Feature", "properties": props, "geometry": cg})
 
-    # 4. ne_50m_rivers_lake_centerlines (scalerank <= 5 + 裁除中国历史河网重叠区)
-    rivers_shp = find_shp(extract_zip("ne_50m_rivers_lake_centerlines.zip"))
+    # 3b. 注入 ne_10m_lakes_historic 中的古咸海 / 古乍得湖 / 阿兹特克特斯科科湖（罗布泊放入 geography.json 带中文古名注记）
+    hist_lakes_shp = find_shp(extract_zip("ne_10m_lakes_historic.zip"))
+    lop_nur_geom = None
+    with shapefile.Reader(str(hist_lakes_shp)) as sf:
+        fields = [f[0].lower() for f in sf.fields[1:]]
+        nm_idx = fields.index("name")
+        for sr in sf.iterShapeRecords():
+            if sr.shape.shapeType == shapefile.NULL or not sr.shape.points:
+                continue
+            name = str(sr.record[nm_idx] or "").strip()
+            cg = clean_polygon_geom(sr.shape.__geo_interface__, tol=0.008, decimals=3, min_outer_area=0.0)
+            if not cg:
+                continue
+            if name == "Lop Nur":
+                lop_nur_geom = cg
+            elif name in HISTORIC_BASE_LAKE_NAMES:
+                zh_map = {"Aral Sea": "咸海（雷翥海）", "Lake Chad": "古乍得湖", "Lake Texcoco": "特斯科科湖"}
+                features.append({
+                    "type": "Feature",
+                    "properties": {"k": "lake", "sr": 1, "nz": zh_map.get(name, "")},
+                    "geometry": cg,
+                })
+    if lop_nur_geom:
+        (CACHE_DIR / "lop_nur_10m.json").write_text(json.dumps(lop_nur_geom, ensure_ascii=False), encoding="utf-8")
+    print(f"[vec] 10m lake features: {sum(1 for f in features if f['properties']['k'] == 'lake')} (removed {removed_reservoirs} modern reservoirs)")
+
+    # 4. ne_10m_rivers_lake_centerlines (分级天然水系 + 仅精确截断黄河桃花峪以下现代河段与苏北现代入海水道)
+    rivers_shp = find_shp(extract_zip("ne_10m_rivers_lake_centerlines.zip"))
+    huang_1855_lines: list[list] = []
     with shapefile.Reader(str(rivers_shp)) as sf:
         fields = [f[0].lower() for f in sf.fields[1:]]
-        sr_idx = fields.index("scalerank") if "scalerank" in fields else -1
+        sr_idx = fields.index("scalerank")
+        fc_idx = fields.index("featurecla")
+        nm_idx = fields.index("name")
+        zh_idx = fields.index("name_zh") if "name_zh" in fields else -1
         for sr in sf.iterShapeRecords():
             if sr.shape.shapeType == shapefile.NULL or not sr.shape.points:
                 continue
-            rank = sr.record[sr_idx] if sr_idx >= 0 else 0
-            if rank is not None and float(rank) > 5:
+            fcla = str(sr.record[fc_idx] or "")
+            if fcla == "Lake Centerline" or "reservoir" in fcla.lower():
                 continue
+            name = str(sr.record[nm_idx] or "").strip()
+            if name in ("Dam", "Hudi"):
+                continue
+            rank = float(sr.record[sr_idx]) if sr.record[sr_idx] is not None else 5.0
+            in_focus = bool(sr.shape.bbox and is_in_eurasia_focus(sr.shape.bbox))
+            max_rank = 9.0 if in_focus else 5.0
+            if rank > max_rank:
+                continue
+
             geom = sr.shape.__geo_interface__
             gtype = geom.get("type")
             lines = [geom["coordinates"]] if gtype == "LineString" else (geom["coordinates"] if gtype == "MultiLineString" else [])
             out_lines: list[list[list[float]]] = []
+            tol = 0.009 if in_focus else 0.022
             for line in lines:
-                for sub in split_river_coords(line):
-                    cl = simplify_line(sub, tol=0.02, decimals=3)
+                if name == "Huang":
+                    kept_segs, mod_segs = clip_yellow_river_downstream(line)
+                    huang_1855_lines.extend(mod_segs)
+                    for sub in kept_segs:
+                        cl = simplify_line(sub, tol=0.008, decimals=3)
+                        if cl:
+                            out_lines.append(cl)
+                else:
+                    cl = simplify_line(line, tol=tol, decimals=3)
                     if cl:
                         out_lines.append(cl)
             if not out_lines:
                 continue
             out_geom = {"type": "LineString", "coordinates": out_lines[0]} if len(out_lines) == 1 else {"type": "MultiLineString", "coordinates": out_lines}
-            features.append({"type": "Feature", "properties": {"k": "river"}, "geometry": out_geom})
-    print(f"[vec] river features: {sum(1 for f in features if f['properties']['k'] == 'river')}")
+            props = {"k": "river", "sr": max(1, int(round(rank)))}
+            zh_name = str(sr.record[zh_idx] or "").strip() if zh_idx >= 0 else ""
+            if zh_name and in_focus and name not in ("Yangtze", "Chang Jiang"):
+                props["nz"] = zh_name
+            features.append({"type": "Feature", "properties": props, "geometry": out_geom})
+
+    if huang_1855_lines:
+        # 翻转为自西向东（桃花峪 -> 渤海利津）以便在 geography.json 中直接使用
+        seg = list(reversed(huang_1855_lines[0]))
+        (CACHE_DIR / "huang_1855_10m.json").write_text(json.dumps(seg, ensure_ascii=False), encoding="utf-8")
+
+    print(f"[vec] 10m river features: {sum(1 for f in features if f['properties']['k'] == 'river')}")
 
     # 5. 15° graticules
     grat_feats = build_graticules()
     features.extend(grat_feats)
-    print(f"[vec] graticule features: {len(grat_feats)}")
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     vec_path = OUT_DIR / "natural-earth.geojson"
     fc = {"type": "FeatureCollection", "features": features}
     vec_bytes = json.dumps(fc, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     vec_path.write_bytes(vec_bytes)
-    print(f"[out] {vec_path} -> {len(vec_bytes) / 1024:.1f} KB ({len(features)} features)")
-    return land_raw, pac_in_k200
+    print(f"[out] {vec_path} -> {len(vec_bytes) / (1024 * 1024):.2f} MB ({len(features)} features)")
+    return land_raw
 
 
-def rasterize_land_mask(land_geoms: list[dict], w: int, h: int) -> np.ndarray:
+def decode_terrarium_png(path: Path) -> np.ndarray:
+    with Image.open(path) as im:
+        rgb = np.asarray(im.convert("RGB"), dtype=np.float32)
+    return (rgb[..., 0] * 256.0 + rgb[..., 1] + rgb[..., 2] / 256.0) - 32768.0
+
+
+def encode_terrarium_rgb(elev: np.ndarray) -> np.ndarray:
+    v = np.clip(elev + 32768.0, 0.0, 65535.996)
+    r = np.floor(v / 256.0)
+    rem = v - r * 256.0
+    g = np.floor(rem)
+    b = np.floor((rem - g) * 256.0)
+    return np.stack([r, g, b], axis=-1).astype(np.uint8)
+
+
+def build_dem_webp_tiles() -> np.ndarray:
+    """
+    将缓存的 Terrarium 高程 PNG 转换为自托管无损 WebP：
+    - z0..z4：全球 341 张
+    - z5：全球 1024 张全覆盖（陆地及近海取原生 z5，远洋深海由 z4 高程双线性插值补齐，彻底杜绝任何 404）
+    - z6 (x=41..56, y=18..29) & z7 (x=86..111, y=40..56)：丝路西域、中亚与中国高清高程瓦片
+    同时返回拼接好的全球 z4 高程矩阵 (4096x4096 Web Mercator) 供生成暗色高程晕渲兜底图使用。
+    """
+    if DEM_OUT_DIR.exists():
+        shutil.rmtree(DEM_OUT_DIR)
+    DEM_OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    total_files = 0
+    total_bytes = 0
+
+    def save_lossless_webp(rgb: np.ndarray, dst: Path) -> None:
+        nonlocal total_files, total_bytes
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(rgb, mode="RGB").save(dst, format="WEBP", lossless=True, quality=80, method=3)
+        total_files += 1
+        total_bytes += dst.stat().st_size
+
+    # z0..z4 global + stitch z4 elevation grid
+    z4_grid = np.zeros((16 * 256, 16 * 256), dtype=np.float32)
+    z4_tiles: dict[tuple[int, int], np.ndarray] = {}
+
+    for z in range(0, 5):
+        n = 1 << z
+        for x in range(n):
+            for y in range(n):
+                src = DEM_RAW_DIR / str(z) / str(x) / f"{y}.png"
+                with Image.open(src) as im:
+                    rgb = np.asarray(im.convert("RGB"), dtype=np.uint8)
+                save_lossless_webp(rgb, DEM_OUT_DIR / str(z) / str(x) / f"{y}.webp")
+                if z == 4:
+                    elev = (rgb[..., 0].astype(np.float32) * 256.0 + rgb[..., 1].astype(np.float32) + rgb[..., 2].astype(np.float32) / 256.0) - 32768.0
+                    z4_tiles[(x, y)] = elev
+                    z4_grid[y * 256 : (y + 1) * 256, x * 256 : (x + 1) * 256] = elev
+        print(f"[dem] z={z} converted ({n * n} tiles)", flush=True)
+
+    # z5 full 32x32 global (zero 404s anywhere on Earth)
+    sub_idx = (np.arange(256, dtype=np.float32) + 0.5) * 0.5 - 0.5
+    for x in range(32):
+        for y in range(32):
+            src = DEM_RAW_DIR / "5" / str(x) / f"{y}.png"
+            dst = DEM_OUT_DIR / "5" / str(x) / f"{y}.webp"
+            if src.exists():
+                with Image.open(src) as im:
+                    rgb = np.asarray(im.convert("RGB"), dtype=np.uint8)
+                save_lossless_webp(rgb, dst)
+            else:
+                parent = z4_tiles[(x >> 1, y >> 1)]
+                ox = 128.0 if (x & 1) else 0.0
+                oy = 128.0 if (y & 1) else 0.0
+                gy = np.broadcast_to((oy + sub_idx)[:, None], (256, 256))
+                gx = np.broadcast_to((ox + sub_idx)[None, :], (256, 256))
+                up_elev = map_coordinates(parent, np.stack([gy, gx], axis=0), order=1, mode="nearest", prefilter=False)
+                save_lossless_webp(encode_terrarium_rgb(up_elev), dst)
+    print("[dem] z=5 converted (1024 global tiles)", flush=True)
+
+    # z6 & z7 Asia / Silk Road HD DEM tiles
+    for z in (6, 7):
+        z_src = DEM_RAW_DIR / str(z)
+        cnt = 0
+        if z_src.exists():
+            for x_dir in sorted(z_src.iterdir()):
+                if not x_dir.is_dir():
+                    continue
+                for png in sorted(x_dir.glob("*.png")):
+                    with Image.open(png) as im:
+                        rgb = np.asarray(im.convert("RGB"), dtype=np.uint8)
+                    save_lossless_webp(rgb, DEM_OUT_DIR / str(z) / x_dir.name / f"{png.stem}.webp")
+                    cnt += 1
+        print(f"[dem] z={z} HD Asia converted ({cnt} tiles)", flush=True)
+
+    print(f"[out] {DEM_OUT_DIR} -> {total_files} lossless DEM WebP tiles, total {total_bytes / (1024 * 1024):.2f} MB")
+    return z4_grid
+
+
+def rasterize_mercator_land_mask(land_geoms: list[dict], size: int) -> np.ndarray:
     polys: list[tuple[float, list]] = []
     for g in land_geoms:
         gtype = g.get("type")
@@ -392,142 +500,125 @@ def rasterize_land_mask(land_geoms: list[dict], w: int, h: int) -> np.ndarray:
         for poly in plist:
             if poly and len(poly[0]) >= 3:
                 polys.append((abs(ring_area(poly[0])), poly))
-    # 大多边形先画、小岛后画，确保洞内岛屿不会被覆盖
     polys.sort(key=lambda item: item[0], reverse=True)
 
-    mask_img = Image.new("L", (w, h), 0)
+    mask_img = Image.new("L", (size, size), 0)
     draw = ImageDraw.Draw(mask_img)
 
-    def to_px(ring: list) -> list[tuple[float, float]]:
-        return [((pt[0] + 180.0) / 360.0 * w, (90.0 - pt[1]) / 180.0 * h) for pt in ring]
+    def to_merc_px(ring: list) -> list[tuple[float, float]]:
+        out = []
+        for pt in ring:
+            lon = max(-180.0, min(180.0, float(pt[0])))
+            lat = max(-85.051128, min(85.051128, float(pt[1])))
+            x = (lon + 180.0) / 360.0 * size
+            lat_rad = math.radians(lat)
+            y = (1.0 - math.log(math.tan(lat_rad) + 1.0 / math.cos(lat_rad)) / math.pi) * 0.5 * size
+            out.append((x, y))
+        return out
 
     for _, poly in polys:
-        draw.polygon(to_px(poly[0]), fill=255)
+        draw.polygon(to_merc_px(poly[0]), fill=255)
         for hole in poly[1:]:
             if len(hole) >= 3:
-                draw.polygon(to_px(hole), fill=0)
+                draw.polygon(to_merc_px(hole), fill=0)
 
     return np.asarray(mask_img, dtype=np.uint8) > 127
 
 
-def interp_palette(t: np.ndarray, c0: tuple[int, int, int], c1: tuple[int, int, int], c2: tuple[int, int, int]) -> np.ndarray:
-    """将归一化标量 t in [0,1] 分段插值到 3 个 RGB 停靠色（0 -> c0, 0.5 -> c1, 1 -> c2）"""
-    t = np.clip(t, 0.0, 1.0)
-    out = np.empty((*t.shape, 3), dtype=np.float32)
-    low = t <= 0.5
-    w_low = np.where(low, t * 2.0, 0.0)[..., None]
-    w_high = np.where(~low, (t - 0.5) * 2.0, 0.0)[..., None]
-    a0 = np.array(c0, dtype=np.float32)
-    a1 = np.array(c1, dtype=np.float32)
-    a2 = np.array(c2, dtype=np.float32)
-    low_rgb = a0 + (a1 - a0) * w_low
-    high_rgb = a1 + (a2 - a1) * w_high
-    out = np.where(low[..., None], low_rgb, high_rgb)
-    return np.clip(np.rint(out), 0, 255).astype(np.uint8)
+def interp_stops(val: np.ndarray, stops: list[tuple[float, tuple[int, int, int]]]) -> np.ndarray:
+    xs = np.array([s[0] for s in stops], dtype=np.float32)
+    cs = np.array([s[1] for s in stops], dtype=np.float32)
+    out = np.empty((*val.shape, 3), dtype=np.float32)
+    for ch in range(3):
+        out[..., ch] = np.interp(val, xs, cs[:, ch])
+    return out
 
 
-def normalize_by_percentiles(vals: np.ndarray, mask: np.ndarray) -> np.ndarray:
-    sample = vals[mask]
-    p2, p50, p99 = np.percentile(sample, [2.0, 50.0, 99.0])
-    print(f"[relief] percentiles (mask count={sample.size}): p2={p2:.1f}, p50={p50:.1f}, p99={p99:.1f}")
-    denom_lo = max(p50 - p2, 1e-3)
-    denom_hi = max(p99 - p50, 1e-3)
-    t = np.where(
-        vals <= p50,
-        0.5 * (vals - p2) / denom_lo,
-        0.5 + 0.5 * (vals - p50) / denom_hi,
-    )
-    return np.clip(t, 0.0, 1.0)
+def build_relief_tiles_from_dem(z4_merc_elev: np.ndarray, land_geoms: list[dict]) -> None:
+    """
+    基于真实数值高程生成暗色古风分层设色 + 多向山体阴影兜底栅格瓦片（z0..z4, 512px）：
+    让塔里木盆地、河西走廊、四川盆地、关中平原与天山/昆仑/青藏高原自然形成温润高程层次。
+    """
+    size = z4_merc_elev.shape[0]  # 4096x4096 Web Mercator
+    land_mask = rasterize_mercator_land_mask(land_geoms, size)
 
+    # 多方位角山体阴影 (NW 315° 主光 + WSW 250° 辅光 + NNE 20° 侧光)
+    dy, dx = np.gradient(z4_merc_elev / 2400.0)
+    slope = np.arctan(np.hypot(dx, dy) * 2.6)
+    aspect = np.arctan2(-dx, dy)
 
-def build_relief_tiles(land_geoms: list[dict]) -> None:
-    folder = extract_zip("GRAY_50M_SR_OB.zip")
-    tifs = sorted(folder.rglob("*.tif"))
-    if not tifs:
-        raise FileNotFoundError(f"No .tif found in {folder}")
-    tif_path = tifs[0]
-    with Image.open(tif_path) as im:
-        print(f"[relief] source {tif_path.name}: size={im.size}, mode={im.mode}")
-        gray = np.asarray(im.convert("L"), dtype=np.float32)
+    def shade_dir(az_deg: float, alt_deg: float) -> np.ndarray:
+        az = math.radians(az_deg)
+        alt = math.radians(alt_deg)
+        s = math.sin(alt) * np.cos(slope) + math.cos(alt) * np.sin(slope) * np.cos(az - aspect)
+        return np.clip(s, 0.0, 1.0)
 
-    src_h, src_w = gray.shape
-    land_mask = rasterize_land_mask(land_geoms, src_w, src_h)
+    multi_shade = 0.55 * shade_dir(315.0, 38.0) + 0.25 * shade_dir(260.0, 42.0) + 0.20 * shade_dir(25.0, 45.0)
+    neutral = math.sin(math.radians(40.0))
+    relief_delta = (multi_shade - neutral)
 
-    t_ocean = normalize_by_percentiles(gray, ~land_mask)
-    t_land = normalize_by_percentiles(gray, land_mask)
+    # 海洋深浅分层设色（深海沟 -> 洋盆 -> 大陆坡 -> 浅海大陆架：典藏深海蓝，与暗金陆地分明对照）
+    ocean_stops = [
+        (-7500.0, (9, 32, 62)),
+        (-4200.0, (13, 45, 84)),
+        (-1800.0, (19, 60, 108)),
+        (-200.0, (28, 82, 138)),
+        (0.0, (37, 102, 162)),
+    ]
+    # 陆地暗色典藏分层设色（冲积平原青黛 -> 绿洲内陆盆地微暖墨褐 -> 高原冷灰褐 -> 极高山暖金脊霜）
+    land_stops = [
+        (-80.0, (17, 23, 35)),
+        (0.0, (19, 26, 39)),
+        (250.0, (23, 31, 44)),
+        (900.0, (29, 36, 47)),    # 塔里木 / 河西 / 关中盆地阶地
+        (1800.0, (36, 41, 50)),   # 蒙古 / 伊朗 / 黄土高原
+        (3200.0, (46, 49, 57)),   # 天山 / 祁连 / 秦岭山脊
+        (4800.0, (60, 61, 68)),   # 青藏高原 / 帕米尔葱岭
+        (6800.0, (80, 78, 82)),   # 极高山雪线微高光
+    ]
 
-    # 海洋：#060911 -> #0B1322 -> #132238
-    ocean_rgb = interp_palette(t_ocean, (6, 9, 17), (11, 19, 34), (19, 34, 56))
-    # 陆地：#0D121D -> #171F2E -> #373E4D（带极微暖羊皮山脊高光）
-    land_rgb = interp_palette(t_land, (13, 18, 29), (23, 31, 46), (55, 62, 77))
+    ocean_rgb = interp_stops(z4_merc_elev, ocean_stops)
+    land_rgb = interp_stops(z4_merc_elev, land_stops)
+    # 叠加多向地形光影：阳坡带极微暖金调，阴坡沉入墨色
+    warm_tint = np.array([1.12, 1.03, 0.88], dtype=np.float32)
+    land_shaded = land_rgb + (relief_delta[..., None] * 42.0 * warm_tint)
+    ocean_shaded = ocean_rgb + (relief_delta[..., None] * 14.0)
 
-    colored = np.where(land_mask[..., None], land_rgb, ocean_rgb)
-    base_img = Image.fromarray(colored, mode="RGB")
+    colored = np.clip(np.rint(np.where(land_mask[..., None], land_shaded, ocean_shaded)), 0, 255).astype(np.uint8)
+    base_merc_img = Image.fromarray(colored, mode="RGB")
 
-    # 生成 z0..z4 512px WebP 瓦片（共 341 张）
     if RELIEF_DIR.exists():
-        for root, _, files in os.walk(RELIEF_DIR, topdown=False):
-            for fn in files:
-                (Path(root) / fn).unlink()
+        shutil.rmtree(RELIEF_DIR)
     RELIEF_DIR.mkdir(parents=True, exist_ok=True)
 
     tile_size = 512
-    px = (np.arange(tile_size, dtype=np.float64) + 0.5) / tile_size
     total_files = 0
     total_bytes = 0
-
     for z in range(0, 5):
         n_tiles = 1 << z
-        target_w = min(src_w, max(1024, n_tiles * 1024))
-        target_h = target_w // 2
-        if target_w == src_w:
-            level_arr = colored
-        else:
-            level_img = base_img.resize((target_w, target_h), Image.Resampling.LANCZOS)
-            level_arr = np.asarray(level_img, dtype=np.uint8)
-        lw, lh = target_w, target_h
-
+        canvas_px = n_tiles * tile_size
+        level_img = base_merc_img.resize((canvas_px, canvas_px), Image.Resampling.LANCZOS)
         for x in range(n_tiles):
-            lon = ((x + px) / n_tiles) * 360.0 - 180.0
-            sx = np.clip((lon + 180.0) / 360.0 * lw - 0.5, 0.0, lw - 1.0)
-            sx_grid = np.broadcast_to(sx[None, :], (tile_size, tile_size))
-
             z_x_dir = RELIEF_DIR / str(z) / str(x)
             z_x_dir.mkdir(parents=True, exist_ok=True)
-
             for y in range(n_tiles):
-                merc_n = math.pi - 2.0 * math.pi * ((y + px) / n_tiles)
-                lat = np.degrees(np.arctan(np.sinh(merc_n)))
-                sy = np.clip((90.0 - lat) / 180.0 * lh - 0.5, 0.0, lh - 1.0)
-                sy_grid = np.broadcast_to(sy[:, None], (tile_size, tile_size))
-
-                coords = np.stack([sy_grid, sx_grid], axis=0)
-                out_tile = np.empty((tile_size, tile_size, 3), dtype=np.uint8)
-                for ch in range(3):
-                    out_tile[..., ch] = np.clip(
-                        np.rint(map_coordinates(level_arr[..., ch], coords, order=1, mode="nearest", prefilter=False)),
-                        0,
-                        255,
-                    ).astype(np.uint8)
-
+                crop = level_img.crop((x * tile_size, y * tile_size, (x + 1) * tile_size, (y + 1) * tile_size))
                 tile_path = z_x_dir / f"{y}.webp"
-                Image.fromarray(out_tile, mode="RGB").save(tile_path, format="WEBP", quality=78, method=4)
+                crop.save(tile_path, format="WEBP", quality=80, method=4)
                 total_files += 1
                 total_bytes += tile_path.stat().st_size
-
-        print(f"[relief] z={z} ({n_tiles}x{n_tiles}) done")
+        print(f"[relief] z={z} ({n_tiles}x{n_tiles}) done", flush=True)
 
     print(f"[out] {RELIEF_DIR} -> {total_files} WebP tiles, total {total_bytes / (1024 * 1024):.2f} MB")
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build MAPDEX self-hosted Natural Earth vector & dark relief basemap")
-    parser.add_argument("--force", action="store_true", help="Force re-download source zips")
-    args = parser.parse_args()
+    parser = argparse.ArgumentParser(description="Build MAPDEX 10m vector, Terrarium DEM & dark hypsometric relief basemap")
+    parser.parse_args()
 
-    download_all(force=args.force)
-    land_geoms, _ = build_vector_geojson()
-    build_relief_tiles(land_geoms)
+    land_raw = build_vector_geojson()
+    z4_merc_elev = build_dem_webp_tiles()
+    build_relief_tiles_from_dem(z4_merc_elev, land_raw)
     return 0
 
 
