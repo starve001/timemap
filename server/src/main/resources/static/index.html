@@ -4395,7 +4395,7 @@ if (maplibregl) {
       window.__mapErrors.push('geo: ' + (e && e.message || e));
     }
   }
-  const GEO_LAYERS = ['geo-lake-fill', 'geo-lake-outline', 'geo-river-bed', 'geo-river-core', 'geo-river-sheen', 'geo-canal-bed', 'geo-canal-core', 'geo-range', 'geo-lake-labels', 'geo-labels'];
+  const GEO_LAYERS = ['geo-lake-fill', 'geo-lake-outline', 'geo-river-bed', 'geo-river-core', 'geo-canal-bed', 'geo-canal-core', 'geo-range', 'geo-lake-labels', 'geo-labels'];
   function ensureGeoLayers() {
     if (map.getSource('geo')) return;
     const beforeGeo = firstExistingLayer(['contribs-fill', 'modern-ref-borders', 'cities-sym', 'eras-labels-sym', 'geo-labels', 'ed-ref-fill']);
@@ -4412,42 +4412,51 @@ if (maplibregl) {
       filter: ['==', ['get', 'kind'], 'lake'],
       paint: { 'line-color': '#559AD4', 'line-opacity': 0.82, 'line-width': 0.95 },
     }, beforeGeo);
-    // 水系三层画法：河床软带（定宽度）→ 主水线 → 高光芯（流动感），
-    // 宽度随缩放展宽（zoom interpolate）——远景清爽、近景有水的体量。
+    // 历史河道与底图天然水系（ne-rivers-glow / ne-rivers）完全同色同宽同透明度，确保改道接续处零违和感
     const WATER_CAP = { 'line-cap': 'round', 'line-join': 'round' };
-    const ZW = (k, a, b) => ['interpolate', ['linear'], ['zoom'],
-      3, ['*', a, ['coalesce', ['get', 'w'], 1.6]],
-      7, ['*', b, ['coalesce', ['get', 'w'], 1.6]]];
+    const GW = ['coalesce', ['get', 'w'], 1.0];
     map.addLayer({
       id: 'geo-river-bed', type: 'line', source: 'geo',
       filter: ['==', ['get', 'kind'], 'river'],
       layout: WATER_CAP,
-      paint: { 'line-color': '#214866', 'line-opacity': 0.44, 'line-blur': 0.7, 'line-width': ZW(0, 2.2, 4.4) },
+      paint: {
+        'line-color': '#1F4462',
+        'line-opacity': ['interpolate', ['linear'], ['zoom'], 1.5, 0.22, 5, 0.42],
+        'line-blur': 0.6,
+        'line-width': ['interpolate', ['linear'], ['zoom'],
+          1, ['*', 0.9, GW],
+          5, ['*', 2.4, GW],
+          8, ['*', 4.2, GW]],
+      },
     }, beforeGeo);
     map.addLayer({
       id: 'geo-river-core', type: 'line', source: 'geo',
       filter: ['==', ['get', 'kind'], 'river'],
       layout: WATER_CAP,
-      paint: { 'line-color': '#639DC4', 'line-opacity': 0.94, 'line-width': ZW(0, 0.95, 2.05) },
+      paint: {
+        'line-color': '#558CB4',
+        'line-opacity': ['interpolate', ['linear'], ['zoom'], 1.2, 0.55, 4.5, 0.85, 7, 0.92],
+        'line-width': ['interpolate', ['linear'], ['zoom'],
+          1, ['*', 0.42, GW],
+          5, ['*', 1.15, GW],
+          8, ['*', 2.05, GW]],
+      },
     }, beforeGeo);
-    map.addLayer({
-      id: 'geo-river-sheen', type: 'line', source: 'geo',
-      filter: ['==', ['get', 'kind'], 'river'],
-      layout: WATER_CAP,
-      paint: { 'line-color': '#CFE6F5', 'line-opacity': 0.36, 'line-width': ZW(0, 0.3, 0.56) },
-    }, beforeGeo);
+    const ZW = (k, a, b) => ['interpolate', ['linear'], ['zoom'],
+      3, ['*', a, ['coalesce', ['get', 'w'], 1.4]],
+      7, ['*', b, ['coalesce', ['get', 'w'], 1.4]]];
     map.addLayer({
       id: 'geo-canal-bed', type: 'line', source: 'geo',
       filter: ['==', ['get', 'kind'], 'canal'],
       layout: WATER_CAP,
-      paint: { 'line-color': '#2C5878', 'line-opacity': 0.35, 'line-blur': 0.6, 'line-width': ZW(0, 1.9, 3.4) },
+      paint: { 'line-color': '#1F4462', 'line-opacity': 0.30, 'line-blur': 0.6, 'line-width': ZW(0, 1.5, 2.6) },
     }, beforeGeo);
     map.addLayer({
       id: 'geo-canal-core', type: 'line', source: 'geo',
       filter: ['==', ['get', 'kind'], 'canal'],
       layout: WATER_CAP,
-      paint: { 'line-color': '#7FB0D6', 'line-opacity': 0.95,
-        'line-width': ZW(0, 0.95, 1.85), 'line-dasharray': [4, 2.5] },
+      paint: { 'line-color': '#6BA4CC', 'line-opacity': 0.88,
+        'line-width': ZW(0, 0.72, 1.35), 'line-dasharray': [4, 2.5] },
     }, beforeGeo);
     // 山脉实体已由 DEM 多向山体晕渲呈现，此处仅保留极轻柔的脊骨暗晕辅助山名定位
     map.addLayer({

@@ -373,14 +373,25 @@ def build_vector_geojson() -> list[dict]:
             out_geom = {"type": "LineString", "coordinates": out_lines[0]} if len(out_lines) == 1 else {"type": "MultiLineString", "coordinates": out_lines}
             props = {"k": "river", "sr": max(1, int(round(rank)))}
             zh_name = str(sr.record[zh_idx] or "").strip() if zh_idx >= 0 else ""
-            if zh_name and in_focus and name not in ("Yangtze", "Chang Jiang"):
+            if zh_name and in_focus:
                 props["nz"] = zh_name
             features.append({"type": "Feature", "properties": props, "geometry": out_geom})
 
     if huang_1855_lines:
-        # 翻转为自西向东（桃花峪 -> 渤海利津）以便在 geography.json 中直接使用
-        seg = list(reversed(huang_1855_lines[0]))
-        (CACHE_DIR / "huang_1855_10m.json").write_text(json.dumps(seg, ensure_ascii=False), encoding="utf-8")
+        # 拼接桃花峪 [113.498, 34.965] 至渤海利津 [119.235, 37.777] 全部被裁下游段，按经度自西向东排序去重，确保零断头
+        merged_1855: list[list[float]] = [[113.498, 34.965]]
+        all_pts = [pt for seg in huang_1855_lines for pt in seg]
+        # 按段首尾经度方向统一为自西向东
+        ordered_segs = []
+        for seg in huang_1855_lines:
+            s = list(seg) if seg[0][0] <= seg[-1][0] else list(reversed(seg))
+            ordered_segs.append(s)
+        ordered_segs.sort(key=lambda s: s[0][0])
+        for s in ordered_segs:
+            for pt in s:
+                if pt[0] > merged_1855[-1][0] - 0.02 and pt != merged_1855[-1]:
+                    merged_1855.append(pt)
+        (CACHE_DIR / "huang_1855_10m.json").write_text(json.dumps(merged_1855, ensure_ascii=False), encoding="utf-8")
 
     print(f"[vec] 10m river features: {sum(1 for f in features if f['properties']['k'] == 'river')}")
 
