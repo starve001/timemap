@@ -25,7 +25,7 @@ from pathlib import Path
 import numpy as np
 import shapefile
 from PIL import Image, ImageDraw
-from scipy.ndimage import map_coordinates
+from scipy.ndimage import binary_dilation, map_coordinates
 
 Image.MAX_IMAGE_PIXELS = None
 
@@ -162,7 +162,13 @@ def simplify_line(line: list, tol: float, decimals: int) -> list[list[float]] | 
     return cleaned if len(cleaned) >= 2 else None
 
 
-def clean_polygon_geom(geom: dict, tol: float, decimals: int, min_outer_area: float = 0.0) -> dict | None:
+def clean_polygon_geom(
+    geom: dict,
+    tol: float,
+    decimals: int,
+    min_outer_area: float = 0.0,
+    polar_opts: tuple[float, int, float] | None = None,
+) -> dict | None:
     gtype = geom.get("type")
     coords = geom.get("coordinates") or []
     polys = [coords] if gtype == "Polygon" else (coords if gtype == "MultiPolygon" else [])
@@ -173,12 +179,17 @@ def clean_polygon_geom(geom: dict, tol: float, decimals: int, min_outer_area: fl
     for poly in polys:
         if not poly:
             continue
-        outer = simplify_ring(poly[0], tol, decimals, min_area=min_outer_area)
+        p_tol, p_dec, p_min_a = tol, decimals, min_outer_area
+        if polar_opts is not None and poly[0]:
+            lats = [float(pt[1]) for pt in poly[0]]
+            if min(lats) > 62.0 or max(lats) < -52.0:
+                p_tol, p_dec, p_min_a = polar_opts
+        outer = simplify_ring(poly[0], p_tol, p_dec, min_area=p_min_a)
         if not outer:
             continue
         holes = []
         for h in poly[1:]:
-            ch = simplify_ring(h, tol, decimals, min_area=0.0)
+            ch = simplify_ring(h, p_tol, p_dec, min_area=0.0)
             if ch:
                 holes.append(ch)
         kept_polys.append([outer] + holes)
@@ -242,7 +253,7 @@ def build_graticules() -> list[dict]:
 def build_vector_geojson() -> list[dict]:
     features: list[dict] = []
 
-    # 1. ne_10m_land (高精度海岸线：渤海湾、山东半岛、朝鲜、交趾、地中海更精细，微小碎礁过滤控体积)
+    # 1. ne_10m_land (逐子多边形判定：中低纬保持 1:10m 精细海岸线，高纬极区北极群岛/格陵兰/南极适当简化控体积)
     land_shp = find_shp(extract_zip("ne_10m_land.zip"))
     land_raw: list[dict] = []
     with shapefile.Reader(str(land_shp)) as sf:
@@ -251,7 +262,13 @@ def build_vector_geojson() -> list[dict]:
                 continue
             geom = sr.shape.__geo_interface__
             land_raw.append(geom)
-            cg = clean_polygon_geom(geom, tol=0.018, decimals=3, min_outer_area=0.004)
+            cg = clean_polygon_geom(
+                geom,
+                tol=0.018,
+                decimals=3,
+                min_outer_area=0.004,
+                polar_opts=(0.065, 2, 0.06),
+            )
             if cg:
                 features.append({"type": "Feature", "properties": {"k": "land"}, "geometry": cg})
     print(f"[vec] 10m land features: {sum(1 for f in features if f['properties']['k'] == 'land')}")
@@ -423,29 +440,51 @@ def encode_terrarium_rgb(elev: np.ndarray) -> np.ndarray:
     return np.stack([r, g, b], axis=-1).astype(np.uint8)
 
 
-def build_dem_webp_tiles() -> np.ndarray:
+def build_dem_webp_tiles(land_mask_4096: np.ndarray) -> np.ndarray:
     """
     将缓存的 Terrarium 高程 PNG 转换为自托管无损 WebP：
+    - 海洋像素（经适度海岸缓冲后的非陆地区）压平为 0m（保留吐鲁番/死海等陆地负海拔盆地），
+      陆地按缩放级做温和整数米量化（z0..5: 8m，z6..7: 4m），大幅压缩仓库体积而无视觉/坡度损失。
     - z0..z4：全球 341 张
-    - z5：全球 1024 张全覆盖（陆地及近海取原生 z5，远洋深海由 z4 高程双线性插值补齐，彻底杜绝任何 404）
+    - z5：全球 1024 张全覆盖（陆地及近海取原生 z5，远洋深海由 z4 插值补齐并压平为 0m，零 404 且单块仅 ~0.1 KB）
     - z6 (x=41..56, y=18..29) & z7 (x=86..111, y=40..56)：丝路西域、中亚与中国高清高程瓦片
-    同时返回拼接好的全球 z4 高程矩阵 (4096x4096 Web Mercator) 供生成暗色高程晕渲兜底图使用。
+    同时返回原始未压平的全球 z4 高程矩阵 (4096x4096 Web Mercator) 供生成含深海等深色的暗色晕渲兜底图使用。
     """
     if DEM_OUT_DIR.exists():
         shutil.rmtree(DEM_OUT_DIR)
     DEM_OUT_DIR.mkdir(parents=True, exist_ok=True)
 
+    # 给陆地掩膜外扩 ~3 像素（4096 栅格下约 25-30 km 海岸缓冲），防止海岸线边缘梯度被截断
+    keep_mask_4096 = binary_dilation(land_mask_4096, iterations=3)
+
     total_files = 0
     total_bytes = 0
+
+    def tile_keep_mask(z: int, x: int, y: int) -> np.ndarray:
+        """从 4096x4096 墨卡托陆地缓冲掩膜采样当前 (z, x, y) 256x256 瓦片对应区域"""
+        m_size = keep_mask_4096.shape[0]
+        n = 1 << z
+        u = ((x + (np.arange(256, dtype=np.float32) + 0.5) / 256.0) / n) * m_size
+        v = ((y + (np.arange(256, dtype=np.float32) + 0.5) / 256.0) / n) * m_size
+        ix = np.clip(u.astype(np.int32), 0, m_size - 1)
+        iy = np.clip(v.astype(np.int32), 0, m_size - 1)
+        return keep_mask_4096[iy[:, None], ix[None, :]]
+
+    def compress_dem_rgb(elev: np.ndarray, z: int, x: int, y: int) -> np.ndarray:
+        mask = tile_keep_mask(z, x, y)
+        step = 8.0 if z <= 5 else 4.0
+        quant = np.rint(elev / step) * step
+        out_elev = np.where(mask, quant, 0.0)
+        return encode_terrarium_rgb(out_elev)
 
     def save_lossless_webp(rgb: np.ndarray, dst: Path) -> None:
         nonlocal total_files, total_bytes
         dst.parent.mkdir(parents=True, exist_ok=True)
-        Image.fromarray(rgb, mode="RGB").save(dst, format="WEBP", lossless=True, quality=80, method=3)
+        Image.fromarray(rgb, mode="RGB").save(dst, format="WEBP", lossless=True, quality=90, method=4)
         total_files += 1
         total_bytes += dst.stat().st_size
 
-    # z0..z4 global + stitch z4 elevation grid
+    # z0..z4 global + stitch raw z4 elevation grid (保留深海真实水深供 relief 使用)
     z4_grid = np.zeros((16 * 256, 16 * 256), dtype=np.float32)
     z4_tiles: dict[tuple[int, int], np.ndarray] = {}
 
@@ -454,25 +493,22 @@ def build_dem_webp_tiles() -> np.ndarray:
         for x in range(n):
             for y in range(n):
                 src = DEM_RAW_DIR / str(z) / str(x) / f"{y}.png"
-                with Image.open(src) as im:
-                    rgb = np.asarray(im.convert("RGB"), dtype=np.uint8)
-                save_lossless_webp(rgb, DEM_OUT_DIR / str(z) / str(x) / f"{y}.webp")
+                elev = decode_terrarium_png(src)
+                save_lossless_webp(compress_dem_rgb(elev, z, x, y), DEM_OUT_DIR / str(z) / str(x) / f"{y}.webp")
                 if z == 4:
-                    elev = (rgb[..., 0].astype(np.float32) * 256.0 + rgb[..., 1].astype(np.float32) + rgb[..., 2].astype(np.float32) / 256.0) - 32768.0
                     z4_tiles[(x, y)] = elev
                     z4_grid[y * 256 : (y + 1) * 256, x * 256 : (x + 1) * 256] = elev
         print(f"[dem] z={z} converted ({n * n} tiles)", flush=True)
 
-    # z5 full 32x32 global (zero 404s anywhere on Earth)
+    # z5 full 32x32 global (zero 404s anywhere on Earth; 纯海瓦片压平后仅 ~0.1 KB)
     sub_idx = (np.arange(256, dtype=np.float32) + 0.5) * 0.5 - 0.5
     for x in range(32):
         for y in range(32):
             src = DEM_RAW_DIR / "5" / str(x) / f"{y}.png"
             dst = DEM_OUT_DIR / "5" / str(x) / f"{y}.webp"
             if src.exists():
-                with Image.open(src) as im:
-                    rgb = np.asarray(im.convert("RGB"), dtype=np.uint8)
-                save_lossless_webp(rgb, dst)
+                elev = decode_terrarium_png(src)
+                save_lossless_webp(compress_dem_rgb(elev, 5, x, y), dst)
             else:
                 parent = z4_tiles[(x >> 1, y >> 1)]
                 ox = 128.0 if (x & 1) else 0.0
@@ -480,7 +516,7 @@ def build_dem_webp_tiles() -> np.ndarray:
                 gy = np.broadcast_to((oy + sub_idx)[:, None], (256, 256))
                 gx = np.broadcast_to((ox + sub_idx)[None, :], (256, 256))
                 up_elev = map_coordinates(parent, np.stack([gy, gx], axis=0), order=1, mode="nearest", prefilter=False)
-                save_lossless_webp(encode_terrarium_rgb(up_elev), dst)
+                save_lossless_webp(compress_dem_rgb(up_elev, 5, x, y), dst)
     print("[dem] z=5 converted (1024 global tiles)", flush=True)
 
     # z6 & z7 Asia / Silk Road HD DEM tiles
@@ -491,10 +527,11 @@ def build_dem_webp_tiles() -> np.ndarray:
             for x_dir in sorted(z_src.iterdir()):
                 if not x_dir.is_dir():
                     continue
+                x_val = int(x_dir.name)
                 for png in sorted(x_dir.glob("*.png")):
-                    with Image.open(png) as im:
-                        rgb = np.asarray(im.convert("RGB"), dtype=np.uint8)
-                    save_lossless_webp(rgb, DEM_OUT_DIR / str(z) / x_dir.name / f"{png.stem}.webp")
+                    y_val = int(png.stem)
+                    elev = decode_terrarium_png(png)
+                    save_lossless_webp(compress_dem_rgb(elev, z, x_val, y_val), DEM_OUT_DIR / str(z) / x_dir.name / f"{png.stem}.webp")
                     cnt += 1
         print(f"[dem] z={z} HD Asia converted ({cnt} tiles)", flush=True)
 
@@ -545,13 +582,11 @@ def interp_stops(val: np.ndarray, stops: list[tuple[float, tuple[int, int, int]]
     return out
 
 
-def build_relief_tiles_from_dem(z4_merc_elev: np.ndarray, land_geoms: list[dict]) -> None:
+def build_relief_tiles_from_dem(z4_merc_elev: np.ndarray, land_mask: np.ndarray) -> None:
     """
     基于真实数值高程生成暗色古风分层设色 + 多向山体阴影兜底栅格瓦片（z0..z4, 512px）：
     让塔里木盆地、河西走廊、四川盆地、关中平原与天山/昆仑/青藏高原自然形成温润高程层次。
     """
-    size = z4_merc_elev.shape[0]  # 4096x4096 Web Mercator
-    land_mask = rasterize_mercator_land_mask(land_geoms, size)
 
     # 多方位角山体阴影 (NW 315° 主光 + WSW 250° 辅光 + NNE 20° 侧光)
     dy, dx = np.gradient(z4_merc_elev / 2400.0)
@@ -625,11 +660,15 @@ def build_relief_tiles_from_dem(z4_merc_elev: np.ndarray, land_geoms: list[dict]
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build MAPDEX 10m vector, Terrarium DEM & dark hypsometric relief basemap")
-    parser.parse_args()
+    parser.add_argument("--vector-only", action="store_true", help="Only rebuild natural-earth.geojson")
+    args = parser.parse_args()
 
     land_raw = build_vector_geojson()
-    z4_merc_elev = build_dem_webp_tiles()
-    build_relief_tiles_from_dem(z4_merc_elev, land_raw)
+    if args.vector_only:
+        return 0
+    land_mask_4096 = rasterize_mercator_land_mask(land_raw, 4096)
+    z4_merc_elev = build_dem_webp_tiles(land_mask_4096)
+    build_relief_tiles_from_dem(z4_merc_elev, land_mask_4096)
     return 0
 
 

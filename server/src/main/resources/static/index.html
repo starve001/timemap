@@ -232,12 +232,19 @@ button { font-family: inherit; }
   display: flex; flex-direction: column;
 }
 .tl-head {
-  display: flex; justify-content: space-between; align-items: center;
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
   padding: 8px 14px 0;
   font-size: 10px; color: var(--t4);
-  letter-spacing: .16em;
+  letter-spacing: .12em;
+  white-space: nowrap;
 }
-.tl-head .tl-title { text-transform: uppercase; }
+.tl-head .tl-title {
+  text-transform: uppercase;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis;
+}
+.tl-head > span:last-child {
+  display: inline-flex; align-items: center; flex-shrink: 0;
+}
 /* 分区标题的小金菱：与时间轴中央准星同一视觉语言 */
 .tl-head .tl-title::before, .ep-title::before {
   content: ""; display: inline-block; width: 5px; height: 5px; margin-right: 8px;
@@ -725,8 +732,8 @@ button { font-family: inherit; }
 
 /* 时间轴面板头部的小型图层开关 */
 .layer-btn {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 3px 10px;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 9px;
   font-size: 11px;
   border-radius: 999px;
   background: rgba(255,255,255,.04);
@@ -734,7 +741,7 @@ button { font-family: inherit; }
   color: #b4bccd;
   cursor: pointer;
   transition: all .2s ease;
-  margin-right: 10px;
+  margin-right: 6px;
 }
 .layer-btn:hover { background: rgba(255,255,255,.08); color: #e6e8ef; }
 .layer-btn.on {
@@ -1197,7 +1204,7 @@ body.ed-on .ed-card { display: flex; }
         <button class="layer-btn on" id="geoToggle" style="display:none" title="叠加历史河道、运河、古湖泽（罗布泊/居延海/云梦泽等随年代演替）与山脉注记">💧 河渠山川</button>
         <button class="layer-btn" id="terrainToggle" title="开启三维高程地形与倾斜俯瞰视角（右键或 Ctrl+拖拽可旋转俯仰观察河西走廊、天山葱岭等山川形势）">🏔 3D地形</button>
         <button class="layer-btn" id="modernToggle" title="按需叠加现代国界与地名参考（CARTO 暗色，古今对照用，默认关闭）">🗺 现代参考</button>
-        <span class="tl-attr">底图 <span id="basemapAttr"><a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a></span> · 版图 <a href="https://github.com/Seshat-Global-History-Databank/cliopatria" target="_blank" rel="noopener">Cliopatria</a>/Seshat (CC BY 4.0) · 引擎 MapLibre GL</span>
+        <span class="tl-attr">底图 <span id="basemapAttr"><a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener" title="自然地理矢量：Natural Earth (Public Domain)；高程地形：AWS/Mapzen Terrarium DEM (USGS/SRTM/ETOPO1)">Natural Earth</a> · <span title="高程源自 AWS/Mapzen Terrarium (USGS/SRTM/ETOPO1)">DEM</span></span> · 版图 <a href="https://github.com/Seshat-Global-History-Databank/cliopatria" target="_blank" rel="noopener" title="Cliopatria / Seshat Global History Databank (CC BY 4.0)">Cliopatria</a> (CC BY 4.0) · <span title="MapLibre GL JS">MapLibre</span></span>
       </span>
     </div>
     <div class="tl-body">
@@ -3177,7 +3184,22 @@ if (maplibregl) {
         paint: { 'raster-opacity': 0.90, 'raster-fade-duration': 180 } },
       { id: 'ne-hypso', type: 'color-relief', source: 'ne-dem',
         paint: {
-          'color-relief-opacity': 0.36,
+          'color-relief-opacity': ['interpolate', ['linear'], ['zoom'], 5.8, 0.36, 6.4, 0.18],
+          'color-relief-color': [
+            'interpolate', ['linear'], ['elevation'],
+            -50, 'rgba(0,0,0,0)',
+            0, 'rgba(20,28,42,0.05)',
+            220, '#182233',
+            850, '#222B3A',
+            1650, '#2C3341',
+            3200, '#3C404C',
+            5000, '#53545E',
+            6800, '#6E6B72',
+          ],
+        } },
+      { id: 'ne-hypso-asia', type: 'color-relief', source: 'ne-dem-asia', minzoom: 5.8,
+        paint: {
+          'color-relief-opacity': ['interpolate', ['linear'], ['zoom'], 5.8, 0.0, 6.4, 0.28],
           'color-relief-color': [
             'interpolate', ['linear'], ['elevation'],
             -50, 'rgba(0,0,0,0)',
@@ -3241,22 +3263,6 @@ if (maplibregl) {
         } },
       { id: 'ne-grat', type: 'line', source: 'ne-vec', filter: ['==', ['get', 'k'], 'grat'],
         paint: { 'line-color': 'rgba(201, 162, 75, 0.08)', 'line-width': 0.52 } },
-      { id: 'ne-river-labels', type: 'symbol', source: 'ne-vec', minzoom: 4.3,
-        filter: ['all', ['==', ['get', 'k'], 'river'], ['has', 'nz'],
-          ['<=', ['coalesce', ['get', 'sr'], 6], ['step', ['zoom'], 5, 5.2, 7, 6.2, 9]]],
-        layout: {
-          'symbol-placement': 'line',
-          'text-field': ['get', 'nz'],
-          'text-size': ['interpolate', ['linear'], ['zoom'], 4.3, 9.5, 7, 11],
-          'text-letter-spacing': 0.12,
-          'text-max-angle': 50,
-        },
-        paint: {
-          'text-color': '#87B2D2',
-          'text-halo-color': 'rgba(6,10,18,0.85)',
-          'text-halo-width': 1.1,
-          'text-opacity': 0.86,
-        } },
     ],
   };
 
@@ -3273,6 +3279,8 @@ if (maplibregl) {
   let basemapMode = 'ne-relief'; // 'ne-relief' | 'ne-vector' | 'fallback'
   let modernOn = modernRequested;
   let terrainOn = terrainRequested;
+  let activeTerrainSource = null;
+  let demDisabled = false;
   let gotNeVec = false, gotNeRelief = false, reliefFailCount = 0, demFailCount = 0;
   let modernTileLoaded = false, modernFailCount = 0, modernWarned = false;
   let modernTileUrls = null, modernLoading = null;
@@ -3434,7 +3442,8 @@ if (maplibregl) {
       el.innerHTML = '离线深色画布' + modernSuffix;
       return;
     }
-    el.innerHTML = '<a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a>' + modernSuffix;
+    const demSuffix = demDisabled ? '' : ' · <span title="高程源自 AWS/Mapzen Terrarium (USGS/SRTM/ETOPO1)">DEM</span>';
+    el.innerHTML = '<a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener" title="自然地理矢量：Natural Earth (Public Domain)；高程地形：AWS/Mapzen Terrarium DEM (USGS/SRTM/ETOPO1)">Natural Earth</a>' + demSuffix + modernSuffix;
   }
 
   function firstExistingLayer(ids) {
@@ -3509,7 +3518,7 @@ if (maplibregl) {
         'text-halo-width': 1.2,
         'text-opacity': 0.92,
       },
-    }, firstExistingLayer(['eras-labels-sym', 'geo-labels', 'ed-ref-fill']));
+    }, firstExistingLayer(['ne-river-labels', 'eras-labels-sym', 'geo-lake-labels', 'geo-labels', 'ed-ref-fill']));
   }
 
   async function ensureModernRefLayers() {
@@ -3733,15 +3742,78 @@ if (maplibregl) {
     });
   }
 
+  function ensureNeRiverLabelsLayer() {
+    if (!map.getSource('ne-vec') || map.getLayer('ne-river-labels')) return;
+    // 置于政权色块与历史名城之上、政权名与历史河渠注记之下，避免被半透明政权色块压暗
+    const beforeId = firstExistingLayer(['eras-labels-sym', 'geo-lake-labels', 'geo-labels', 'ed-ref-fill']);
+    map.addLayer({
+      id: 'ne-river-labels', type: 'symbol', source: 'ne-vec', minzoom: 4.3,
+      filter: ['all', ['==', ['get', 'k'], 'river'], ['has', 'nz'],
+        ['<=', ['coalesce', ['get', 'sr'], 6], ['step', ['zoom'], 5, 5.2, 7, 6.2, 9]]],
+      layout: {
+        'symbol-placement': 'line',
+        'text-field': ['get', 'nz'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 4.3, 9.5, 7, 11],
+        'text-letter-spacing': 0.12,
+        'text-max-angle': 50,
+      },
+      paint: {
+        'text-color': '#87B2D2',
+        'text-halo-color': 'rgba(6,10,18,0.85)',
+        'text-halo-width': 1.1,
+        'text-opacity': 0.86,
+      },
+    }, beforeId);
+  }
+
+  function ensureTerrainSources() {
+    if (!map.getSource('ne-dem-3d')) {
+      map.addSource('ne-dem-3d', {
+        type: 'raster-dem', tiles: [NE_DEM_TILES], encoding: 'terrarium', tileSize: 256, minzoom: 0, maxzoom: 5,
+      });
+    }
+    if (!map.getSource('ne-dem-asia-3d')) {
+      map.addSource('ne-dem-asia-3d', {
+        type: 'raster-dem', tiles: [NE_DEM_TILES], encoding: 'terrarium', tileSize: 256, minzoom: 0, maxzoom: 7,
+        bounds: [62.0, 19.4, 134.8, 52.4],
+      });
+    }
+  }
+
+  function pickTerrainSource() {
+    if (!map.getSource('ne-dem-asia-3d')) return 'ne-dem-3d';
+    if (map.getZoom() >= 6.0) {
+      const b = map.getBounds();
+      if (b && b.getWest() >= 62.5 && b.getEast() <= 134.3 && b.getSouth() >= 19.9 && b.getNorth() <= 51.9) {
+        return 'ne-dem-asia-3d';
+      }
+    }
+    return 'ne-dem-3d';
+  }
+
   function applyTerrainMode() {
-    if (!mapReady || basemapMode === 'fallback') return;
+    if (!mapReady || basemapMode === 'fallback' || demDisabled) {
+      if (activeTerrainSource !== null) {
+        try { map.setTerrain(null); } catch (_) {}
+        activeTerrainSource = null;
+      }
+      return;
+    }
     try {
       if (terrainOn && map.getSource('ne-dem')) {
-        map.setTerrain({ source: 'ne-dem', exaggeration: 2.1 });
+        ensureTerrainSources();
+        const target = pickTerrainSource();
+        if (activeTerrainSource !== target) {
+          map.setTerrain({ source: target, exaggeration: 2.1 });
+          activeTerrainSource = target;
+        }
         map.dragRotate.enable();
         map.touchZoomRotate.enableRotation();
       } else {
-        map.setTerrain(null);
+        if (activeTerrainSource !== null) {
+          map.setTerrain(null);
+          activeTerrainSource = null;
+        }
         map.dragRotate.disable();
         map.touchZoomRotate.disableRotation();
       }
@@ -3766,27 +3838,34 @@ if (maplibregl) {
     if (mapReady) return;
     try {
       resetOverlayCaches();
+      activeTerrainSource = null;
       if (!map.hasImage('sym-3')) map.addImage('sym-3', makeSymImage('★', '#e3b96a', 20), { pixelRatio: 2 });
       if (!map.hasImage('sym-2')) map.addImage('sym-2', makeSymImage('◎', '#b9c2d4', 15), { pixelRatio: 2 });
       if (!map.hasImage('sym-1')) map.addImage('sym-1', makeSymImage('●', '#8a93a8', 11), { pixelRatio: 2 });
       if (!map.hasImage('prot-hatch')) map.addImage('prot-hatch', makeProtHatchImage(), { pixelRatio: 2 });
 
       // 按固定 Z-order 重建所有典藏叠加层：
-      // 底图自然层 → eras-fill/hatch/outline → geo-* → contribs-* → modern-ref-* → cities-sym → eras-labels-sym → geo-labels → ed-*
+      // 底图自然层 → eras-fill/hatch/outline → geo-* → contribs-* → modern-ref-* → cities-sym → ne-river-labels → eras-labels-sym → geo-labels → ed-*
       ensureErasLayers();
       if (geoFC) ensureGeoLayers();
       if (contribsFC) ensureContribsLayers();
       ensureCitiesLayer();
+      ensureNeRiverLabelsLayer();
       if (modernOn) {
         ensureModernRefLayers();
       }
       if (basemapMode === 'ne-vector' && map.getLayer('ne-relief')) {
         map.setLayoutProperty('ne-relief', 'visibility', 'none');
       }
+      if (demDisabled) {
+        ['ne-hypso', 'ne-hypso-asia', 'ne-hillshade', 'ne-hillshade-asia'].forEach(id => {
+          if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
+        });
+      }
 
       mapReady = true;
       applyTerrainMode();
-      if (terrainOn && map.getPitch() < 10) {
+      if (terrainOn && !demDisabled && map.getPitch() < 10) {
         map.jumpTo({ pitch: 46 });
       }
       if (basemapMode !== 'fallback') mapError.classList.remove('show');
@@ -3848,11 +3927,18 @@ if (maplibregl) {
 
     if (e.sourceId && OWN_SOURCES.has(e.sourceId)) return;
 
-    if (e.sourceId === 'ne-dem' || e.sourceId === 'ne-dem-asia') {
-      if (++demFailCount >= 6) {
-        ['ne-hypso', 'ne-hillshade', 'ne-hillshade-asia'].forEach(id => {
+    if (e.sourceId === 'ne-dem' || e.sourceId === 'ne-dem-asia' || e.sourceId === 'ne-dem-3d' || e.sourceId === 'ne-dem-asia-3d') {
+      if (++demFailCount >= 6 && !demDisabled) {
+        demDisabled = true;
+        ['ne-hypso', 'ne-hypso-asia', 'ne-hillshade', 'ne-hillshade-asia'].forEach(id => {
           if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
         });
+        if (activeTerrainSource !== null || terrainOn) {
+          try { map.setTerrain(null); } catch (_) {}
+          activeTerrainSource = null;
+        }
+        updateBasemapAttribution();
+        console.warn('DEM 高程瓦片不可用，已降级关闭实时晕渲与 3D 地形');
       }
       return;
     }
@@ -3889,6 +3975,9 @@ if (maplibregl) {
     return {
       mode: basemapMode,
       modernOn,
+      terrainOn,
+      terrainSource: activeTerrainSource,
+      demDisabled,
       gotNeVec,
       gotNeRelief,
       layers: ((style && style.layers) || []).map(l => l.id),
@@ -3985,8 +4074,8 @@ if (maplibregl) {
     if (e.key === 'Escape' && tipPinned) unpinTip();
   });
 
-  // 事件不在地图上渲染：交互统一走右侧事件栏（点击列表项 → goToEvent）
-  map.on('moveend', () => scheduleHash());
+  // 事件不在地图上渲染：交互统一走右侧事件栏（点击列表项 → goToEvent）；3D 模式下在亚洲高清区内自动切换 z6-7 DEM
+  map.on('moveend', () => { if (terrainOn) applyTerrainMode(); scheduleHash(); });
 
   /* ============================================================
    * 政权版图图层（Cliopatria / Seshat Global History Databank, CC BY 4.0）
@@ -4624,6 +4713,7 @@ const TRACE_TUNES = [
   ['eras-labels-sym', 'text-opacity', 0.16],
   ['cities-sym', 'icon-opacity', 0.22],
   ['cities-sym', 'text-opacity', 0.18],
+  ['ne-river-labels', 'text-opacity', 0.25],
   ['modern-ref-borders', 'line-opacity', 0.2],
   ['modern-ref-countries', 'text-opacity', 0.2],
   ['modern-ref-cities', 'text-opacity', 0.2],

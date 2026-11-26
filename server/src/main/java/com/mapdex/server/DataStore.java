@@ -14,7 +14,10 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
@@ -45,6 +48,15 @@ public class DataStore {
     private final Path contribDir;
     private final ObjectMapper mapper = new ObjectMapper();
     private final ConcurrentHashMap<String, Cached> cache = new ConcurrentHashMap<>();
+    /** 瓦片热缓存采用 64 槽 LRU（总占用仅数 MB），避免数千张 DEM/晕渲瓦片撑爆 JVM 堆内存 */
+    private static final int TILE_CACHE_MAX = 64;
+    private final Map<String, Cached> tileCache = Collections.synchronizedMap(
+            new LinkedHashMap<>(TILE_CACHE_MAX, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, Cached> eldest) {
+                    return size() > TILE_CACHE_MAX;
+                }
+            });
 
     private volatile Manifest manifest;
     private volatile long manifestMtime = -1;
@@ -151,7 +163,7 @@ public class DataStore {
         return read(p, "basemap/natural-earth.geojson");
     }
 
-    /** 自托管 Natural Earth 暗色地形晕渲 WebP 瓦片（越界或缺失返回 null） */
+    /** 自托管 Natural Earth 暗色地形晕渲 WebP 瓦片（越界或缺失返回 null，走有界 LRU 缓存） */
     public Cached basemapReliefTile(int z, int x, int y) {
         if (z < 0 || z > 7) return null;
         int limit = 1 << z;
@@ -161,10 +173,10 @@ public class DataStore {
                 .resolve(String.valueOf(x))
                 .resolve(y + ".webp");
         if (!Files.isRegularFile(p)) return null;
-        return read(p, "basemap/relief/" + z + "/" + x + "/" + y + ".webp");
+        return readTile(p, "basemap/relief/" + z + "/" + x + "/" + y + ".webp");
     }
 
-    /** 自托管 Terrarium 高程 DEM 无损 WebP 瓦片（供客户端实时多向山体晕渲、高程设色与 3D 地形使用） */
+    /** 自托管 Terrarium 高程 DEM 无损 WebP 瓦片（供客户端实时多向山体晕渲、高程设色与 3D 地形使用，走有界 LRU 缓存） */
     public Cached basemapDemTile(int z, int x, int y) {
         if (z < 0 || z > 8) return null;
         int limit = 1 << z;
@@ -174,7 +186,7 @@ public class DataStore {
                 .resolve(String.valueOf(x))
                 .resolve(y + ".webp");
         if (!Files.isRegularFile(p)) return null;
-        return read(p, "basemap/dem/" + z + "/" + x + "/" + y + ".webp");
+        return readTile(p, "basemap/dem/" + z + "/" + x + "/" + y + ".webp");
     }
 
     /** 按年份解析时代切片：取不晚于该年份的最近切片 */
@@ -243,6 +255,24 @@ public class DataStore {
             contribState = st;
             contribCache = new Cached(body, maxMtime, body.length);
             return contribCache;
+        }
+    }
+
+    private Cached readTile(Path p, String key) {
+        try {
+            Path np = p.normalize();
+            if (!np.startsWith(dataDir.normalize())) {
+                throw new IllegalArgumentException("非法瓦片路径: " + p);
+            }
+            long mt = Files.getLastModifiedTime(np).toMillis();
+            long sz = Files.size(np);
+            Cached c = tileCache.get(key);
+            if (c != null && c.mtime() == mt && c.size() == sz) return c;
+            Cached fresh = new Cached(Files.readAllBytes(np), mt, sz);
+            tileCache.put(key, fresh);
+            return fresh;
+        } catch (IOException e) {
+            throw new UncheckedIOException("读取瓦片文件失败: " + p, e);
         }
     }
 
