@@ -12,6 +12,7 @@
 | `scan-cliopatria.js` / `inspect-cliopatria.js` / `dump-east.js` | 数据源探查与东亚政权检查 |
 | `apply-cliopatria-1200.js` / `apply-cliopatria-950-376.js` | 特定时期切片的数据修正 |
 | `build-basemap.py` | Python 脚本：生成同源自托管 Natural Earth 自然矢量底图与暗色地形晕渲 WebP 瓦片（输出至 `data/basemap/`） |
+| `build-graticules.py` | Python 脚本：生成面向 QGIS 的 15°/5°/1° 分级经纬网矢量与自动生效样式（输出至 `data/qgis/`） |
 | `check-syntax.js` | 前端脚本语法检查 |
 
 ## 原始数据

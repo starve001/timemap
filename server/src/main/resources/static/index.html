@@ -752,6 +752,32 @@ button { font-family: inherit; }
 }
 .layer-btn:disabled { opacity: .4; cursor: not-allowed; }
 
+/* 编辑经纬网 / 勘绘台实时坐标浮标（左下，贴时间轴面板上缘） */
+.coord-hud {
+  position: fixed;
+  left: 16px; bottom: 174px;
+  z-index: 35;
+  display: none; align-items: center; gap: 8px;
+  padding: 5px 11px;
+  font-family: "SF Mono", Consolas, Menlo, monospace;
+  font-size: 11px; letter-spacing: .02em;
+  color: var(--gold-hi);
+  background: rgba(10,14,24,.88);
+  border: 1px solid rgba(201,162,75,.34);
+  border-radius: 999px;
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 6px 20px rgba(0,0,0,.38);
+  cursor: pointer; user-select: none;
+  transition: border-color .18s, background .18s, color .18s;
+}
+.coord-hud.show { display: inline-flex; }
+.coord-hud:hover { border-color: rgba(233,204,133,.68); background: rgba(14,20,34,.95); }
+.coord-hud .ch-step {
+  color: #9BBAD4; font-size: 10px;
+  padding-left: 7px; border-left: 1px solid rgba(255,255,255,.12);
+}
+.coord-hud.copied { border-color: rgba(111,158,106,.78); color: #AEE0A8; }
+
 /* ========================= AI 助手对话面板 ========================= */
 .ai-panel {
   position: fixed;
@@ -957,6 +983,7 @@ button { font-family: inherit; }
   .play-ctrl { grid-row: 1; }
   .categories { grid-column: 1 / -1; justify-content: flex-start; overflow-x: auto; flex-wrap: nowrap; padding-bottom: 2px; }
   .map-ctrl { top: auto; bottom: 38vh; transform: none; }
+  .coord-hud { bottom: calc(min(196px, 32vh) + 20px); left: 10px; font-size: 10px; padding: 4px 8px; }
   .brand h1 { font-size: 13px; }
 
   /* 事件栏改为底部抽屉：默认收起，点击开关滑出 */
@@ -1204,6 +1231,7 @@ body.ed-on .ed-card { display: flex; }
         <button class="layer-btn on" id="geoToggle" style="display:none" title="叠加历史河道、运河、古湖泽（罗布泊/居延海/云梦泽等随年代演替）与山脉注记">💧 河渠山川</button>
         <button class="layer-btn" id="terrainToggle" title="开启三维高程地形与倾斜俯瞰视角（右键或 Ctrl+拖拽可旋转俯仰观察河西走廊、天山葱岭等山川形势）">🏔 3D地形</button>
         <button class="layer-btn" id="modernToggle" title="按需叠加现代国界与地名参考（CARTO 暗色，古今对照用，默认关闭）">🗺 现代参考</button>
+        <button class="layer-btn" id="gridToggle" title="叠加自适应分级经纬网（15° / 5° / 1° / 0.5° 随缩放加密，含度数标注与光标实时坐标，方便审图与描图）">⌗ 经纬网</button>
         <span class="tl-attr">底图 <span id="basemapAttr"><a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener" title="自然地理矢量：Natural Earth (Public Domain)；高程地形：AWS/Mapzen Terrarium DEM (USGS/SRTM/ETOPO1)">Natural Earth</a> · <span title="高程源自 AWS/Mapzen Terrarium (USGS/SRTM/ETOPO1)">DEM</span></span> · 版图 <a href="https://github.com/Seshat-Global-History-Databank/cliopatria" target="_blank" rel="noopener" title="Cliopatria / Seshat Global History Databank (CC BY 4.0)">Cliopatria</a> (CC BY 4.0) · <span title="MapLibre GL JS">MapLibre</span></span>
       </span>
     </div>
@@ -1259,6 +1287,12 @@ body.ed-on .ed-card { display: flex; }
   <button class="zoom-btn" id="mapReset" title="重置地图视图" style="font-size:13px;">⟲</button>
   <button class="zoom-btn" id="edToggle" title="勘绘台：描图、自检、导出贡献数据" aria-pressed="false" style="font-size:14px;">✎</button>
 </div>
+
+<!-- 光标实时经纬度与网格间距浮标（开启经纬网或勘绘台时显示；点击复制中心坐标） -->
+<button class="coord-hud" id="coordHud" type="button" title="光标实时经纬度与网格间距（点击复制当前画面中心 [经度, 纬度]）">
+  <span id="coordText">—</span>
+  <span class="ch-step" id="coordStep">网格 15°</span>
+</button>
 
 <!-- 地图事件悬浮提示 -->
 <div class="map-tip" id="mapTip">
@@ -2564,6 +2598,7 @@ function writeHash() {
     const ff = mapHooks.focusFlag ? mapHooks.focusFlag() : null;
     const mf = mapHooks.modernFlag ? mapHooks.modernFlag() : null;
     const tf = mapHooks.terrainFlag ? mapHooks.terrainFlag() : null;
+    const grf = mapHooks.gridFlag ? mapHooks.gridFlag() : null;
     // 手拼查询串而不用 URLSearchParams.toString()：后者会把 map 段的
     // 斜杠编码成 %2F，门户跳板的深链正则只认裸 /，分享出去的链接会失配
     let q = 'y=' + encodeURIComponent(cy);
@@ -2576,11 +2611,12 @@ function writeHash() {
       if (ff) q += '&f=' + encodeURIComponent(ff);
       if (tf === '1') q += '&t=1'; // 3D 地形：默认关闭，开启时写入
       if (mf === '1') q += '&m=1'; // 现代参考底图：默认关闭，开启时写入
+      if (grf === '1') q += '&gr=1'; // 分级经纬网：默认关闭，开启时写入
     } else {
       // 地图模块未就绪（顶层 await 的降级加载可拖数秒）：hook 全空，
-      // 保留原 hash 里的 map/e/f/g/t/m，别把深链抹成只有 y
+      // 保留原 hash 里的 map/e/f/g/t/m/gr，别把深链抹成只有 y
       const cur = location.hash.replace(/^#/, '');
-      ['map', 'e', 'f', 'g', 't', 'm'].forEach(k => {
+      ['map', 'e', 'f', 'g', 't', 'm', 'gr'].forEach(k => {
         const m = cur.match(new RegExp('(?:^|&)' + k + '=([^&]*)'));
         if (m) q += '&' + k + '=' + m[1];
       });
@@ -3144,6 +3180,10 @@ if (maplibregl) {
     try { return new URLSearchParams(location.hash.replace(/^#/, '')).get('t') === '1'; } // 3D 地形：缺省关，t=1 开
     catch (_) { return false; }
   })();
+  const gridRequested = (() => {
+    try { return new URLSearchParams(location.hash.replace(/^#/, '')).get('gr') === '1'; } // 分级经纬网：缺省关，gr=1 开
+    catch (_) { return false; }
+  })();
 
   /* ============================================================
    * 同源自托管自然底图（Natural Earth 1:10m 分级水系海岸矢量 + Terrarium DEM 高程多向晕渲）
@@ -3274,11 +3314,18 @@ if (maplibregl) {
 
   // 所有共享状态集中前置声明，防止内联样式早触发 style.load 时出现 TDZ
   const EMPTY_FC = { type: 'FeatureCollection', features: [] };
-  const OWN_SOURCES = new Set(['cities', 'eras', 'eras-labels', 'contribs', 'geo', 'ed-ref', 'ed-work', 'ed-verts']);
+  const OWN_SOURCES = new Set(['cities', 'eras', 'eras-labels', 'contribs', 'geo', 'edit-grid', 'edit-grid-labels', 'ed-ref', 'ed-work', 'ed-verts']);
   let mapReady = false;
   let basemapMode = 'ne-relief'; // 'ne-relief' | 'ne-vector' | 'fallback'
   let modernOn = modernRequested;
   let terrainOn = terrainRequested;
+  let gridOn = gridRequested;
+  let gridAutoByEd = false;
+  const GRID_LAYERS = ['edit-grid-minor', 'edit-grid-major', 'edit-grid-labels'];
+  let gridRaf = 0;
+  let lastGridMeta = { major: 15, minor: 15, lineCount: 0, labelCount: 0 };
+  let coordCopyTimer = 0;
+  let lastCursorLngLat = null;
   let activeTerrainSource = null;
   let demDisabled = false;
   let gotNeVec = false, gotNeRelief = false, reliefFailCount = 0, demFailCount = 0;
@@ -3834,6 +3881,270 @@ if (maplibregl) {
     scheduleHash();
   }
 
+  /* ============================================================
+   * 自适应分级经纬网（15° / 5° / 1° / 0.5°）+ 光标实时坐标浮标
+   * - 仅按当前视口动态生成矢量线与边界度数标注，不增加底图体积
+   * - 线层置政权色块之上、注记之下；度数标注置顶（勘绘台草稿层之下）
+   * ============================================================ */
+  function normLon(d) {
+    let x = ((d + 180) % 360 + 360) % 360 - 180;
+    if (Math.abs(x + 180) < 1e-6) x = 180;
+    return x;
+  }
+  function fmtLonDeg(d) {
+    const x = normLon(d);
+    if (Math.abs(x) < 1e-6) return '0°';
+    if (Math.abs(Math.abs(x) - 180) < 1e-6) return '180°';
+    const ax = Math.abs(x);
+    const v = Math.abs(ax - Math.round(ax)) < 1e-6 ? String(Math.round(ax)) : ax.toFixed(1);
+    return v + (x > 0 ? '°E' : '°W');
+  }
+  function fmtLatDeg(d) {
+    if (Math.abs(d) < 1e-6) return '0°';
+    const ad = Math.abs(d);
+    const v = Math.abs(ad - Math.round(ad)) < 1e-6 ? String(Math.round(ad)) : ad.toFixed(1);
+    return v + (d > 0 ? '°N' : '°S');
+  }
+  function fmtCoordPair(lng, lat) {
+    const x = normLon(lng);
+    const y = clampN(lat, -90, 90);
+    const ls = Math.abs(x) < 0.005 ? '0.00°' : Math.abs(x).toFixed(2) + (x >= 0 ? '°E' : '°W');
+    const bs = Math.abs(y) < 0.005 ? '0.00°' : Math.abs(y).toFixed(2) + (y >= 0 ? '°N' : '°S');
+    return `${ls}, ${bs}`;
+  }
+  function pickGridStep(z) {
+    if (z < 2.5) return { major: 30, minor: 15, labelStep: z >= 1.7 ? 15 : 30 };
+    if (z < 4.4) return { major: 15, minor: 5, labelStep: 5 };
+    if (z < 6.6) return { major: 5, minor: 1, labelStep: z >= 5.1 ? 1 : 5 };
+    return { major: 1, minor: 0.5, labelStep: z >= 7.6 ? 0.5 : 1 };
+  }
+  function isMultipleOf(val, step) {
+    return Math.abs(val / step - Math.round(val / step)) < 1e-4;
+  }
+
+  function syncCoordHud() {
+    const hud = document.getElementById('coordHud');
+    const txt = document.getElementById('coordText');
+    const stp = document.getElementById('coordStep');
+    if (!hud || !txt || !stp) return;
+    const show = gridOn || document.body.classList.contains('ed-on');
+    hud.classList.toggle('show', show);
+    if (!show) return;
+    if (!coordCopyTimer) {
+      if (lastCursorLngLat) {
+        txt.textContent = fmtCoordPair(lastCursorLngLat.lng, lastCursorLngLat.lat);
+      } else if (mapReady) {
+        const c = map.getCenter();
+        txt.textContent = '中心 ' + fmtCoordPair(c.lng, c.lat);
+      }
+    }
+    if (gridOn) {
+      const m = lastGridMeta.minor;
+      const ms = Math.abs(m - Math.round(m)) < 1e-6 ? `${Math.round(m)}°` : `${m.toFixed(1)}°`;
+      stp.textContent = `网格 ${ms}`;
+    } else {
+      stp.textContent = '网格关';
+    }
+  }
+
+  function ensureGridLayers() {
+    if (!map.getSource('edit-grid')) map.addSource('edit-grid', { type: 'geojson', data: EMPTY_FC });
+    if (!map.getSource('edit-grid-labels')) map.addSource('edit-grid-labels', { type: 'geojson', data: EMPTY_FC });
+    const vis = gridOn ? 'visible' : 'none';
+    const beforeLines = firstExistingLayer(['cities-sym', 'ne-river-labels', 'eras-labels-sym', 'geo-lake-labels', 'geo-labels', 'ed-ref-fill']);
+    const beforeLabels = firstExistingLayer(['ed-ref-fill', 'ed-work-fill']);
+    if (!map.getLayer('edit-grid-minor')) {
+      map.addLayer({
+        id: 'edit-grid-minor', type: 'line', source: 'edit-grid',
+        filter: ['==', ['get', 'tier'], 'minor'],
+        layout: { visibility: vis },
+        paint: {
+          'line-color': 'rgba(148, 194, 232, 0.24)',
+          'line-width': 0.65,
+          'line-dasharray': [3, 3],
+        },
+      }, beforeLines);
+    }
+    if (!map.getLayer('edit-grid-major')) {
+      map.addLayer({
+        id: 'edit-grid-major', type: 'line', source: 'edit-grid',
+        filter: ['!=', ['get', 'tier'], 'minor'],
+        layout: { visibility: vis },
+        paint: {
+          'line-color': ['match', ['get', 'tier'], 'zero', 'rgba(233, 204, 133, 0.72)', 'rgba(233, 204, 133, 0.44)'],
+          'line-width': ['match', ['get', 'tier'], 'zero', 1.35, 0.95],
+        },
+      }, beforeLines);
+    }
+    if (!map.getLayer('edit-grid-labels')) {
+      map.addLayer({
+        id: 'edit-grid-labels', type: 'symbol', source: 'edit-grid-labels',
+        layout: {
+          visibility: vis,
+          'text-field': ['get', 'text'],
+          'text-size': ['match', ['get', 'tier'], 'minor', 11, 12],
+          'text-anchor': ['get', 'anchor'],
+          'text-padding': 5,
+          'text-allow-overlap': false,
+        },
+        paint: {
+          'text-color': ['match', ['get', 'tier'], 'zero', '#F9E6AC', 'major', '#F2D893', '#C8E0F4'],
+          'text-halo-color': 'rgba(7, 11, 20, 0.90)',
+          'text-halo-width': 1.15,
+          'text-opacity': 0.96,
+        },
+      }, beforeLabels);
+    }
+    if (map.getLayer('ne-grat')) {
+      map.setLayoutProperty('ne-grat', 'visibility', gridOn ? 'none' : 'visible');
+    }
+  }
+
+  function updateGrid() {
+    if (!mapReady || !gridOn) return;
+    const lineSrc = map.getSource('edit-grid');
+    const lblSrc = map.getSource('edit-grid-labels');
+    if (!lineSrc || !lblSrc) return;
+
+    const b = map.getBounds();
+    const z = map.getZoom();
+    let { major, minor, labelStep } = pickGridStep(z);
+    const west = b.getWest(), east = b.getEast();
+    const south = b.getSouth(), north = b.getNorth();
+    const fullWorld = (east - west) >= 355;
+
+    // 极端倾斜视角保护：若步长过密自动升档，控制线数在百条以内
+    while (!fullWorld && ((east - west) / minor > 120 || (Math.min(80, north) - Math.max(-80, south)) / minor > 90)) {
+      if (minor < 1) { minor = 1; major = 5; labelStep = Math.max(labelStep, 1); }
+      else if (minor < 5) { minor = 5; major = 15; labelStep = Math.max(labelStep, 5); }
+      else if (minor < 15) { minor = 15; major = 30; labelStep = Math.max(labelStep, 15); }
+      else break;
+    }
+
+    const latMin = Math.max(-80, Math.floor(south / minor) * minor - minor);
+    const latMax = Math.min(80, Math.ceil(north / minor) * minor + minor);
+    const lonStart = fullWorld ? -180 : (Math.floor(west / minor) * minor - minor);
+    const lonEnd = fullWorld ? 180 : (Math.ceil(east / minor) * minor + minor);
+
+    const lines = [];
+    const labels = [];
+
+    // 屏幕安全区内的边界标注锚点（避开顶部栏、左侧笔架、右侧事件/校勘卡、底部时间轴）
+    const cEl = map.getContainer();
+    const vw = cEl.clientWidth || window.innerWidth;
+    const vh = cEl.clientHeight || window.innerHeight;
+    const edActive = document.body.classList.contains('ed-on');
+    const leftPx = edActive ? 74 : 24;
+    const rightPx = vw > 900 ? vw - 344 : vw - 22;
+    const topPx = vw > 900 ? 84 : 124;
+    const botPx = vh - (vw > 900 ? 196 : Math.min(196, vh * 0.32) + 34);
+
+    let topLat = Math.min(80, north) - Math.max(0.5, Math.min(80, north) - Math.max(-80, south)) * 0.12;
+    try {
+      const pTop = map.unproject([vw * 0.5, topPx]);
+      if (pTop && isFinite(pTop.lat) && pTop.lat <= north && pTop.lat >= south) topLat = pTop.lat;
+    } catch (_) {}
+    topLat = clampN(topLat, -78, 78);
+
+    let leftLon = west + Math.max(0.5, east - west) * 0.06;
+    try {
+      const pLeft = map.unproject([leftPx, Math.min(vh * 0.5, (topPx + botPx) * 0.5)]);
+      if (pLeft && isFinite(pLeft.lng) && pLeft.lng >= west && pLeft.lng <= east) leftLon = pLeft.lng;
+    } catch (_) {}
+
+    const latSegStep = (latMax - latMin) > 25 ? 5 : Math.max(1, (latMax - latMin) / 4);
+    const lonSegStep = (lonEnd - lonStart) > 25 ? 5 : Math.max(1, (lonEnd - lonStart) / 4);
+
+    const iLon0 = Math.round(lonStart / minor);
+    const iLon1 = Math.round(lonEnd / minor);
+    for (let i = iLon0; i <= iLon1; i++) {
+      const lon = Math.round(i * minor * 1000) / 1000;
+      const nx = normLon(lon);
+      const isZero = Math.abs(nx) < 1e-5;
+      const isMajor = isMultipleOf(lon, major);
+      const tier = isZero ? 'zero' : (isMajor ? 'major' : 'minor');
+      const coords = [];
+      for (let lat = latMin; lat < latMax - 1e-6; lat += latSegStep) {
+        coords.push([lon, Math.round(lat * 1000) / 1000]);
+      }
+      coords.push([lon, latMax]);
+      lines.push({ type: 'Feature', properties: { tier }, geometry: { type: 'LineString', coordinates: coords } });
+
+      if (isMultipleOf(lon, labelStep) && !(fullWorld && Math.abs(lon + 180) < 1e-5)) {
+        try {
+          const sp = map.project([lon, topLat]);
+          if (sp.x >= leftPx + 28 && sp.x <= rightPx - 14 && sp.y >= topPx - 28 && sp.y <= botPx) {
+            labels.push({
+              type: 'Feature',
+              properties: { text: fmtLonDeg(lon), tier, anchor: 'top' },
+              geometry: { type: 'Point', coordinates: [lon, topLat] },
+            });
+          }
+        } catch (_) {}
+      }
+    }
+
+    const iLat0 = Math.round(latMin / minor);
+    const iLat1 = Math.round(latMax / minor);
+    for (let i = iLat0; i <= iLat1; i++) {
+      const lat = Math.round(i * minor * 1000) / 1000;
+      if (lat < -80 || lat > 80) continue;
+      const isZero = Math.abs(lat) < 1e-5;
+      const isMajor = isMultipleOf(lat, major);
+      const tier = isZero ? 'zero' : (isMajor ? 'major' : 'minor');
+      const coords = [];
+      for (let lon = lonStart; lon < lonEnd - 1e-6; lon += lonSegStep) {
+        coords.push([Math.round(lon * 1000) / 1000, lat]);
+      }
+      coords.push([lonEnd, lat]);
+      lines.push({ type: 'Feature', properties: { tier }, geometry: { type: 'LineString', coordinates: coords } });
+
+      if (isMultipleOf(lat, labelStep)) {
+        try {
+          const sp = map.project([leftLon, lat]);
+          if (sp.y >= topPx + 22 && sp.y <= botPx - 16 && sp.x >= 0 && sp.x <= rightPx) {
+            labels.push({
+              type: 'Feature',
+              properties: { text: fmtLatDeg(lat), tier, anchor: 'left' },
+              geometry: { type: 'Point', coordinates: [leftLon, lat] },
+            });
+          }
+        } catch (_) {}
+      }
+    }
+
+    lineSrc.setData({ type: 'FeatureCollection', features: lines });
+    lblSrc.setData({ type: 'FeatureCollection', features: labels });
+    lastGridMeta = { major, minor, labelStep, lineCount: lines.length, labelCount: labels.length };
+    syncCoordHud();
+  }
+
+  function scheduleGridUpdate() {
+    if (!gridOn || !mapReady || gridRaf) return;
+    gridRaf = requestAnimationFrame(() => {
+      gridRaf = 0;
+      updateGrid();
+    });
+  }
+
+  function setGridMode(on, opts = {}) {
+    gridOn = !!on;
+    if (!opts.fromEd) gridAutoByEd = false;
+    document.getElementById('gridToggle')?.classList.toggle('on', gridOn);
+    if (mapReady) {
+      ensureGridLayers();
+      GRID_LAYERS.forEach(id => {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', gridOn ? 'visible' : 'none');
+      });
+      if (map.getLayer('ne-grat')) {
+        map.setLayoutProperty('ne-grat', 'visibility', gridOn ? 'none' : 'visible');
+      }
+      if (gridOn) updateGrid();
+    }
+    syncCoordHud();
+    if (!opts.silentHash) scheduleHash();
+  }
+
   function setupLayers() {
     if (mapReady) return;
     try {
@@ -3851,6 +4162,7 @@ if (maplibregl) {
       if (contribsFC) ensureContribsLayers();
       ensureCitiesLayer();
       ensureNeRiverLabelsLayer();
+      ensureGridLayers();
       if (modernOn) {
         ensureModernRefLayers();
       }
@@ -3877,6 +4189,8 @@ if (maplibregl) {
       if (geoFC) updateGeography(true);
       if (contribsFC) updateContribs(true);
       updateCities();
+      if (gridOn) updateGrid();
+      syncCoordHud();
 
       window.dispatchEvent(new Event('mapdex-style-rebuilt'));
     } catch (err) {
@@ -3905,6 +4219,7 @@ if (maplibregl) {
   document.getElementById('geoToggle')?.classList.toggle('on', geoOn);
   document.getElementById('terrainToggle')?.classList.toggle('on', terrainOn);
   document.getElementById('modernToggle')?.classList.toggle('on', modernOn);
+  document.getElementById('gridToggle')?.classList.toggle('on', gridOn);
   updateBasemapAttribution();
 
   map.on('sourcedata', (e) => {
@@ -3976,6 +4291,7 @@ if (maplibregl) {
       mode: basemapMode,
       modernOn,
       terrainOn,
+      gridOn,
       terrainSource: activeTerrainSource,
       demDisabled,
       gotNeVec,
@@ -3983,6 +4299,24 @@ if (maplibregl) {
       layers: ((style && style.layers) || []).map(l => l.id),
       attr: (document.getElementById('basemapAttr') || {}).textContent || '',
     };
+  };
+  window.__gridDebug = () => ({ gridOn, gridAutoByEd, ...lastGridMeta });
+  window.__setGridForEditor = (open) => {
+    if (open) {
+      if (!gridOn) {
+        gridAutoByEd = true;
+        setGridMode(true, { fromEd: true, silentHash: true });
+      } else {
+        updateGrid();
+        syncCoordHud();
+      }
+    } else if (gridAutoByEd) {
+      gridAutoByEd = false;
+      setGridMode(false, { fromEd: true, silentHash: true });
+    } else {
+      if (gridOn) updateGrid();
+      syncCoordHud();
+    }
   };
 
   /* ---------- 挂载双向联动钩子 ---------- */
@@ -4022,6 +4356,8 @@ if (maplibregl) {
       const mh = sp.get('map');
       const wantTerrain = sp.get('t') === '1';
       if (wantTerrain !== terrainOn) setTerrainMode(wantTerrain, false);
+      const wantGrid = sp.get('gr') === '1';
+      if (wantGrid !== gridOn) setGridMode(wantGrid, { silentHash: true });
       if (!mh) return;
       const [z, lon, lat] = mh.split('/').map(Number);
       if ([z, lon, lat].every(v => typeof v === 'number' && isFinite(v))) {
@@ -4038,7 +4374,13 @@ if (maplibregl) {
 
   function hideMapTip() { mapTip.classList.remove('show'); }
   const lastEraMouse = { x: 0, y: 0 };
-  map.on('mousemove', (e) => { lastEraMouse.x = e.point.x; lastEraMouse.y = e.point.y; });
+  map.on('mousemove', (e) => {
+    lastEraMouse.x = e.point.x; lastEraMouse.y = e.point.y;
+    if (e.lngLat) {
+      lastCursorLngLat = e.lngLat;
+      if (gridOn || document.body.classList.contains('ed-on')) syncCoordHud();
+    }
+  });
   function showMapTipContent(y, n, s, pt) {
     mtYear.textContent = y;
     mtName.textContent = n;
@@ -4075,7 +4417,14 @@ if (maplibregl) {
   });
 
   // 事件不在地图上渲染：交互统一走右侧事件栏（点击列表项 → goToEvent）；3D 模式下在亚洲高清区内自动切换 z6-7 DEM
-  map.on('moveend', () => { if (terrainOn) applyTerrainMode(); scheduleHash(); });
+  map.on('move', () => { if (gridOn) scheduleGridUpdate(); });
+  map.on('moveend', () => {
+    if (terrainOn) applyTerrainMode();
+    if (gridOn) updateGrid();
+    else if (document.body.classList.contains('ed-on')) syncCoordHud();
+    scheduleHash();
+  });
+  window.addEventListener('resize', () => { if (gridOn) scheduleGridUpdate(); });
 
   /* ============================================================
    * 政权版图图层（Cliopatria / Seshat Global History Databank, CC BY 4.0）
@@ -4631,6 +4980,27 @@ if (maplibregl) {
   });
   document.getElementById('terrainToggle')?.addEventListener('click', () => setTerrainMode(!terrainOn, true));
   document.getElementById('modernToggle').addEventListener('click', () => setModernRef(!modernOn));
+  document.getElementById('gridToggle')?.addEventListener('click', () => setGridMode(!gridOn));
+  document.getElementById('coordHud')?.addEventListener('click', () => {
+    if (!mapReady) return;
+    const c = map.getCenter();
+    const raw = `${normLon(c.lng).toFixed(3)}, ${clampN(c.lat, -90, 90).toFixed(3)}`;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(raw).catch(() => {});
+    }
+    const hud = document.getElementById('coordHud');
+    const txt = document.getElementById('coordText');
+    if (hud && txt) {
+      hud.classList.add('copied');
+      txt.textContent = '已复制 ' + raw;
+      clearTimeout(coordCopyTimer);
+      coordCopyTimer = setTimeout(() => {
+        coordCopyTimer = 0;
+        hud.classList.remove('copied');
+        syncCoordHud();
+      }, 1400);
+    }
+  });
   document.getElementById('focusToggle').addEventListener('click', () => {
     focusOn = !focusOn;
     document.getElementById('focusToggle').classList.toggle('on', focusOn);
@@ -4644,6 +5014,7 @@ if (maplibregl) {
   mapHooks.geoFlag = () => (geoOn ? null : '0');
   mapHooks.terrainFlag = () => (terrainOn ? '1' : null);
   mapHooks.modernFlag = () => (modernOn ? '1' : null);
+  mapHooks.gridFlag = () => (gridOn && !gridAutoByEd ? '1' : null);
 
   /* ---------- 历史名城按年代筛选 ---------- */
   function updateCities() {
@@ -5120,6 +5491,7 @@ function setOpen(on) {
   toggleBtn.classList.toggle('on', on);
   toggleBtn.setAttribute('aria-pressed', String(on));
   traceStyle(on);
+  if (window.__setGridForEditor) window.__setGridForEditor(on);
   if (on) {
     map.doubleClickZoom.disable();
     setTool(tool);
